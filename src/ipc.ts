@@ -168,6 +168,7 @@ export async function processTaskIpc(
     name?: string;
     folder?: string;
     trigger?: string;
+    channel?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
   },
@@ -357,7 +358,7 @@ export async function processTaskIpc(
         );
         break;
       }
-      if (data.jid && data.name && data.folder && data.trigger) {
+      if (data.jid && data.name && data.folder && data.trigger && data.channel) {
         if (!isValidGroupFolder(data.folder)) {
           logger.warn(
             { sourceGroup, folder: data.folder },
@@ -370,6 +371,7 @@ export async function processTaskIpc(
           folder: data.folder,
           trigger: data.trigger,
           added_at: new Date().toISOString(),
+          channel: data.channel,
           containerConfig: data.containerConfig,
           requiresTrigger: data.requiresTrigger,
         });

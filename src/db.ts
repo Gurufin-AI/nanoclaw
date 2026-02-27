@@ -79,6 +79,7 @@ function createSchema(database: Database.Database): void {
       folder TEXT NOT NULL UNIQUE,
       trigger_pattern TEXT NOT NULL,
       added_at TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT 'unknown',
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
@@ -125,6 +126,25 @@ function createSchema(database: Database.Database): void {
     );
   } catch {
     /* columns already exist */
+  }
+
+  // Add channel column to registered_groups if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN channel TEXT NOT NULL DEFAULT 'unknown'`,
+    );
+    // Backfill from JID patterns
+    database.exec(
+      `UPDATE registered_groups SET channel = 'whatsapp' WHERE jid LIKE '%@g.us'`,
+    );
+    database.exec(
+      `UPDATE registered_groups SET channel = 'whatsapp' WHERE jid LIKE '%@s.whatsapp.net'`,
+    );
+    database.exec(
+      `UPDATE registered_groups SET channel = 'telegram' WHERE jid LIKE 'tg:%'`,
+    );
+  } catch {
+    /* column already exists */
   }
 }
 
@@ -528,6 +548,7 @@ export function getRegisteredGroup(
         folder: string;
         trigger_pattern: string;
         added_at: string;
+        channel: string;
         container_config: string | null;
         requires_trigger: number | null;
       }
@@ -546,6 +567,7 @@ export function getRegisteredGroup(
     folder: row.folder,
     trigger: row.trigger_pattern,
     added_at: row.added_at,
+    channel: row.channel,
     containerConfig: row.container_config
       ? JSON.parse(row.container_config)
       : undefined,
@@ -559,14 +581,15 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, channel, container_config, requires_trigger)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
     group.folder,
     group.trigger,
     group.added_at,
+    group.channel,
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
   );
@@ -579,6 +602,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     folder: string;
     trigger_pattern: string;
     added_at: string;
+    channel: string;
     container_config: string | null;
     requires_trigger: number | null;
   }>;
@@ -596,6 +620,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       folder: row.folder,
       trigger: row.trigger_pattern,
       added_at: row.added_at,
+      channel: row.channel,
       containerConfig: row.container_config
         ? JSON.parse(row.container_config)
         : undefined,

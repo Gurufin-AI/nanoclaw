@@ -92,6 +92,7 @@ const testGroup: RegisteredGroup = {
   name: 'Test Group',
   folder: 'test-group',
   trigger: '@Andy',
+  channel: 'whatsapp',
   added_at: new Date().toISOString(),
 };
 
@@ -99,6 +100,7 @@ const testInput = {
   prompt: 'Hello',
   groupFolder: 'test-group',
   chatJid: 'test@g.us',
+  channel: 'whatsapp',
   isMain: false,
 };
 

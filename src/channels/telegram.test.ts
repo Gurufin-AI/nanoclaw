@@ -80,6 +80,7 @@ function createTestOpts(
         folder: 'test-group',
         trigger: '@Andy',
         added_at: '2024-01-01T00:00:00.000Z',
+        channel: 'telegram',
       },
     })),
     ...overrides,
@@ -355,6 +356,7 @@ describe('TelegramChannel', () => {
             folder: 'private',
             trigger: '@Andy',
             added_at: '2024-01-01T00:00:00.000Z',
+            channel: 'telegram',
           },
         })),
       });

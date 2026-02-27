@@ -140,6 +140,7 @@ async function runTask(
         sessionId,
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,
+        channel: group.channel,
         isMain,
         isScheduledTask: true,
         assistantName: ASSISTANT_NAME,

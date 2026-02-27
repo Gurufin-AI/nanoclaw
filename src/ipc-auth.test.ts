@@ -17,6 +17,7 @@ const MAIN_GROUP: RegisteredGroup = {
   folder: 'main',
   trigger: 'always',
   added_at: '2024-01-01T00:00:00.000Z',
+  channel: 'whatsapp',
 };
 
 const OTHER_GROUP: RegisteredGroup = {
@@ -24,6 +25,7 @@ const OTHER_GROUP: RegisteredGroup = {
   folder: 'other-group',
   trigger: '@Andy',
   added_at: '2024-01-01T00:00:00.000Z',
+  channel: 'whatsapp',
 };
 
 const THIRD_GROUP: RegisteredGroup = {
@@ -31,6 +33,7 @@ const THIRD_GROUP: RegisteredGroup = {
   folder: 'third-group',
   trigger: '@Andy',
   added_at: '2024-01-01T00:00:00.000Z',
+  channel: 'telegram',
 };
 
 let groups: Record<string, RegisteredGroup>;
@@ -337,6 +340,7 @@ describe('register_group authorization', () => {
         name: 'New Group',
         folder: 'new-group',
         trigger: '@Andy',
+        channel: 'whatsapp',
       },
       'other-group',
       false,
@@ -355,6 +359,7 @@ describe('register_group authorization', () => {
         name: 'New Group',
         folder: '../../outside',
         trigger: '@Andy',
+        channel: 'whatsapp',
       },
       'main',
       true,
@@ -641,6 +646,7 @@ describe('register_group success', () => {
         name: 'New Group',
         folder: 'new-group',
         trigger: '@Andy',
+        channel: 'whatsapp',
       },
       'main',
       true,
