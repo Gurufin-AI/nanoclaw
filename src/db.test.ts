@@ -457,6 +457,7 @@ describe('registered group isMain', () => {
       name: 'Main Chat',
       folder: 'whatsapp_main',
       trigger: '@Andy',
+      channel: 'whatsapp',
       added_at: '2024-01-01T00:00:00.000Z',
       isMain: true,
     });
@@ -473,6 +474,7 @@ describe('registered group isMain', () => {
       name: 'Family Chat',
       folder: 'whatsapp_family-chat',
       trigger: '@Andy',
+      channel: 'whatsapp',
       added_at: '2024-01-01T00:00:00.000Z',
     });
 

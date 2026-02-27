@@ -16,6 +16,7 @@ const MAIN_GROUP: RegisteredGroup = {
   name: 'Main',
   folder: 'whatsapp_main',
   trigger: 'always',
+  channel: 'whatsapp',
   added_at: '2024-01-01T00:00:00.000Z',
   isMain: true,
 };
@@ -24,6 +25,7 @@ const OTHER_GROUP: RegisteredGroup = {
   name: 'Other',
   folder: 'other-group',
   trigger: '@Andy',
+  channel: 'whatsapp',
   added_at: '2024-01-01T00:00:00.000Z',
 };
 
@@ -31,6 +33,7 @@ const THIRD_GROUP: RegisteredGroup = {
   name: 'Third',
   folder: 'third-group',
   trigger: '@Andy',
+  channel: 'whatsapp',
   added_at: '2024-01-01T00:00:00.000Z',
 };
 

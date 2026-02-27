@@ -104,6 +104,7 @@ describe('getAvailableGroups', () => {
         folder: 'registered',
         trigger: '@Andy',
         added_at: '2024-01-01T00:00:00.000Z',
+        channel: 'whatsapp',
       },
     });
 
@@ -236,6 +237,7 @@ describe('getAvailableGroups', () => {
         folder: 'tg-registered',
         trigger: '@Andy',
         added_at: '2024-01-01T00:00:00.000Z',
+        channel: 'telegram',
       },
     });
 
