@@ -199,7 +199,10 @@ export class TelegramChannel implements Channel {
         },
       })
       .catch((err) => {
-        logger.error({ err: err.message, stack: (err as Error).stack }, 'Telegram bot polling error');
+        logger.error(
+          { err: err.message, stack: (err as Error).stack },
+          'Telegram bot polling error',
+        );
       });
 
     // Check if the bot can at least talk through API
@@ -213,7 +216,10 @@ export class TelegramChannel implements Channel {
       ]);
       logger.info({ username: me.username }, 'Telegram API check successful');
     } catch (err) {
-      logger.error({ err: (err as Error).message }, 'Telegram API check failed');
+      logger.error(
+        { err: (err as Error).message },
+        'Telegram API check failed',
+      );
     }
 
     return Promise.resolve();
@@ -256,7 +262,10 @@ export class TelegramChannel implements Channel {
             );
             await new Promise((resolve) => setTimeout(resolve, 2000)); // 2초 대기 후 재시도
           } else {
-            logger.error({ jid, err }, 'Failed to send Telegram message after retries');
+            logger.error(
+              { jid, err },
+              'Failed to send Telegram message after retries',
+            );
           }
         }
       }

@@ -43,15 +43,15 @@ When you learn something important:
 - Split files larger than 500 lines into folders
 - Keep an index in your memory for the files you create
 
-## WhatsApp Formatting (and other messaging apps)
+## Message Formatting
 
-Do NOT use markdown headings (##) in WhatsApp messages. Only use:
-- *Bold* (single asterisks) (NEVER **double asterisks**)
+Do NOT use markdown headings (##) or double asterisks (**). Use the following formatting:
+- *Bold* (single asterisks)
 - _Italic_ (underscores)
 - • Bullets (bullet points)
 - ```Code blocks``` (triple backticks)
 
-Keep messages clean and readable for WhatsApp.
+Keep messages clean and readable for mobile chat.
 
 ---
 
@@ -85,17 +85,18 @@ Available groups are provided in `/workspace/ipc/available_groups.json`:
 {
   "groups": [
     {
-      "jid": "120363336345536173@g.us",
-      "name": "Family Chat",
-      "lastActivity": "2026-01-31T12:00:00.000Z",
-      "isRegistered": false
+      "jid": "tg:-10023456789",
+      "name": "Project Alpha",
+      "channel": "telegram",
+      "lastActivity": "2026-02-27T10:00:00.000Z",
+      "isRegistered": true
     }
   ],
-  "lastSync": "2026-01-31T12:00:00.000Z"
+  "lastSync": "2026-02-27T12:00:00.000Z"
 }
 ```
 
-Groups are ordered by most recent activity. The list is synced from WhatsApp daily.
+Groups are ordered by most recent activity. The list is synced from channels daily.
 
 If a group the user mentions isn't in the list, request a fresh sync:
 
@@ -103,15 +104,13 @@ If a group the user mentions isn't in the list, request a fresh sync:
 echo '{"type": "refresh_groups"}' > /workspace/ipc/tasks/refresh_$(date +%s).json
 ```
 
-Then wait a moment and re-read `available_groups.json`.
-
 **Fallback**: Query the SQLite database directly:
 
 ```bash
 sqlite3 /workspace/project/store/messages.db "
-  SELECT jid, name, last_message_time
+  SELECT jid, name, channel, last_message_time
   FROM chats
-  WHERE jid LIKE '%@g.us' AND jid != '__group_sync__'
+  WHERE is_group = 1 AND jid != '__group_sync__'
   ORDER BY last_message_time DESC
   LIMIT 10;
 "
@@ -119,7 +118,7 @@ sqlite3 /workspace/project/store/messages.db "
 
 ### Registered Groups Config
 
-Groups are registered in the SQLite `registered_groups` table:
+Groups are registered in the SQLite `registered_groups` table via the `nanoclaw` MCP server's `register_group` tool.
 
 ```json
 {
@@ -140,6 +139,10 @@ Fields:
 - **requiresTrigger**: Whether `@trigger` prefix is needed (default: `true`). Set to `false` for solo/personal chats where all messages should be processed
 - **isMain**: Whether this is the main control group (elevated privileges, no trigger required)
 - **added_at**: ISO timestamp when registered
+
+JID formats by channel:
+- **WhatsApp**: `1234567890@g.us`
+- **Telegram**: `tg:-10023456789`
 
 ### Trigger Behavior
 

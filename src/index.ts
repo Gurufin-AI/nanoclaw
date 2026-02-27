@@ -131,6 +131,7 @@ export function getAvailableGroups(): import('./container-runner.js').AvailableG
     .map((c) => ({
       jid: c.jid,
       name: c.name,
+      channel: c.channel || 'unknown',
       lastActivity: c.last_message_time,
       isRegistered: registeredJids.has(c.jid),
     }));
@@ -309,6 +310,8 @@ async function runAgent(
       }
     : undefined;
 
+  const channel = findChannel(channels, chatJid);
+
   try {
     const output = await runContainerAgent(
       group,
@@ -319,6 +322,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        channel: channel?.name || 'unknown',
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),

@@ -24,6 +24,7 @@ interface ContainerInput {
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
+  channel: string;
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
@@ -389,6 +390,11 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  const channelInfo = `[Platform: ${containerInput.channel}]`;
+  const systemPrompt = globalClaudeMd
+    ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n\n${globalClaudeMd}` }
+    : { type: 'preset' as const, preset: 'claude_code' as const, append: channelInfo };
+
   for await (const message of query({
     prompt: stream,
     options: {
@@ -396,9 +402,7 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
-        : undefined,
+      systemPrompt,
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',
@@ -419,6 +423,7 @@ async function runQuery(
           args: [mcpServerPath],
           env: {
             NANOCLAW_CHAT_JID: containerInput.chatJid,
+            NANOCLAW_CHANNEL: containerInput.channel,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },

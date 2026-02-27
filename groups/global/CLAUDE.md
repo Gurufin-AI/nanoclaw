@@ -49,10 +49,10 @@ When you learn something important:
 
 ## Message Formatting
 
-NEVER use markdown. Only use WhatsApp/Telegram formatting:
-- *single asterisks* for bold (NEVER **double asterisks**)
+NEVER use markdown headings (##) or double asterisks (**). Use the following formatting supported by the messaging platform:
+- *single asterisks* for bold
 - _underscores_ for italic
 - • bullet points
 - ```triple backticks``` for code
 
-No ## headings. No [links](url). No **double stars**.
+No [links](url). Keep messages clean and readable for mobile chat.
