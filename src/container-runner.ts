@@ -35,6 +35,7 @@ export interface ContainerInput {
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
+  channel: string;
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
@@ -655,6 +656,7 @@ export function writeTasksSnapshot(
 export interface AvailableGroup {
   jid: string;
   name: string;
+  channel: string;
   lastActivity: string;
   isRegistered: boolean;
 }

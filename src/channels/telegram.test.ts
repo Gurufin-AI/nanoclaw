@@ -57,6 +57,7 @@ vi.mock('grammy', () => ({
 
     start(opts: { onStart: (botInfo: any) => void }) {
       opts.onStart({ username: 'andy_ai_bot', id: 12345 });
+      return Promise.resolve();
     }
 
     stop() {}
