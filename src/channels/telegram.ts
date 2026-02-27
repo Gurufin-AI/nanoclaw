@@ -92,8 +92,15 @@ export class TelegramChannel implements Channel {
       }
 
       // Store chat metadata for discovery
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, chatName, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        chatName,
+        'telegram',
+        isGroup,
+      );
 
       // Only deliver full message for registered groups
       const group = this.opts.registeredGroups()[chatJid];
@@ -136,8 +143,15 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
 
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
       this.opts.onMessage(chatJid, {
         id: ctx.message.message_id.toString(),
         chat_jid: chatJid,
@@ -151,9 +165,7 @@ export class TelegramChannel implements Channel {
 
     this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', (ctx) =>
-      storeNonText(ctx, '[Voice message]'),
-    );
+    this.bot.on('message:voice', (ctx) => storeNonText(ctx, '[Voice message]'));
     this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
     this.bot.on('message:document', (ctx) => {
       const name = ctx.message.document?.file_name || 'file';
@@ -172,20 +184,37 @@ export class TelegramChannel implements Channel {
     });
 
     // Start polling — returns a Promise that resolves when started
-    this.bot.start({
-      onStart: (botInfo) => {
-        logger.info(
-          { username: botInfo.username, id: botInfo.id },
-          'Telegram bot connected',
-        );
-        console.log(`\n  Telegram bot: @${botInfo.username}`);
-        console.log(
-          `  Send /chatid to the bot to get a chat's registration ID\n`,
-        );
-      },
-    }).catch((err) => {
-      logger.error({ err: err.message }, 'Telegram bot polling error');
-    });
+    logger.debug('Starting Telegram bot polling...');
+    this.bot
+      .start({
+        onStart: (botInfo) => {
+          logger.info(
+            { username: botInfo.username, id: botInfo.id },
+            'Telegram bot connected',
+          );
+          console.log(`\n  Telegram bot: @${botInfo.username}`);
+          console.log(
+            `  Send /chatid to the bot to get a chat's registration ID\n`,
+          );
+        },
+      })
+      .catch((err) => {
+        logger.error({ err: err.message, stack: (err as Error).stack }, 'Telegram bot polling error');
+      });
+
+    // Check if the bot can at least talk through API
+    try {
+      logger.debug('Checking Telegram bot API connectivity...');
+      const me = await Promise.race([
+        this.bot.api.getMe(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('getMe timeout (15s)')), 15000),
+        ),
+      ]);
+      logger.info({ username: me.username }, 'Telegram API check successful');
+    } catch (err) {
+      logger.error({ err: (err as Error).message }, 'Telegram API check failed');
+    }
 
     return Promise.resolve();
   }
@@ -196,24 +225,41 @@ export class TelegramChannel implements Channel {
       return;
     }
 
-    try {
-      const numericId = jid.replace(/^tg:/, '');
+    const numericId = jid.replace(/^tg:/, '');
+    const MAX_LENGTH = 4096;
 
-      // Telegram has a 4096 character limit per message — split if needed
-      const MAX_LENGTH = 4096;
-      if (text.length <= MAX_LENGTH) {
-        await this.bot.api.sendMessage(numericId, text);
-      } else {
-        for (let i = 0; i < text.length; i += MAX_LENGTH) {
-          await this.bot.api.sendMessage(
-            numericId,
-            text.slice(i, i + MAX_LENGTH),
-          );
+    // Split text into chunks if it's too long
+    const chunks = [];
+    if (text.length <= MAX_LENGTH) {
+      chunks.push(text);
+    } else {
+      for (let i = 0; i < text.length; i += MAX_LENGTH) {
+        chunks.push(text.slice(i, i + MAX_LENGTH));
+      }
+    }
+
+    for (const chunk of chunks) {
+      let retries = 3;
+      let success = false;
+
+      while (retries > 0 && !success) {
+        try {
+          await this.bot.api.sendMessage(numericId, chunk);
+          success = true;
+          logger.info({ jid, length: chunk.length }, 'Telegram message sent');
+        } catch (err) {
+          retries--;
+          if (retries > 0) {
+            logger.warn(
+              { jid, err: (err as Error).message, retriesLeft: retries },
+              'Failed to send Telegram message, retrying...',
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000)); // 2초 대기 후 재시도
+          } else {
+            logger.error({ jid, err }, 'Failed to send Telegram message after retries');
+          }
         }
       }
-      logger.info({ jid, length: text.length }, 'Telegram message sent');
-    } catch (err) {
-      logger.error({ jid, err }, 'Failed to send Telegram message');
     }
   }
 
