@@ -358,7 +358,13 @@ export async function processTaskIpc(
         );
         break;
       }
-      if (data.jid && data.name && data.folder && data.trigger && data.channel) {
+      if (
+        data.jid &&
+        data.name &&
+        data.folder &&
+        data.trigger &&
+        data.channel
+      ) {
         if (!isValidGroupFolder(data.folder)) {
           logger.warn(
             { sourceGroup, folder: data.folder },
