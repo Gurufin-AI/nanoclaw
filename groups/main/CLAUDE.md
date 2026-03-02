@@ -193,3 +193,48 @@ When scheduling tasks for other groups, use the `target_group_jid` parameter wit
 - `schedule_task(prompt: "...", schedule_type: "cron", schedule_value: "0 9 * * 1", target_group_jid: "120363336345536173@g.us")`
 
 The task will run in that group's context with access to their files and memory.
+
+---
+
+## Image Processing Workflow
+
+### Status: ✅ ENABLED (File-based)
+
+**Capabilities**:
+- Receive images via Telegram
+- Save images to `/workspace/group/media/`
+- Analyze with Qwen3.5-35B-A3B multimodal model
+
+**How it works**:
+1. User sends image to Telegram
+2. Bot downloads and saves to `/workspace/group/media/image_timestamp.png`
+3. Message contains: `[Photo received]` + `image_file: /path/to/image.png`
+4. Agent reads the file and analyzes
+5. Send response back to Telegram
+
+**Agent Instructions**:
+When you receive a message with `image_file:` in it:
+1. Read the image file using available tools
+2. Analyze the image content
+3. Describe what you see in the image
+4. Send response to user
+
+**Example**:
+- Message: `[Photo received] This is a test image`
+- Contains: `image_file: /workspace/group/media/image_2026-03-02T15-00-00.png`
+- Action: Read file, analyze, describe
+
+**Analysis Tools**:
+- Use `agent-browser` for web-based image analysis
+- Or read file content directly if supported
+- Or use bash commands to inspect file
+
+**Example Commands**:
+- Read file: `cat /workspace/group/media/image_xxx.png` (binary - won't display well)
+- Check file info: `ls -lh /workspace/group/media/image_xxx.png`
+- Use agent-browser to open and analyze
+
+**Note**:
+- Images are stored in `/workspace/group/media/`
+- Files are named with timestamp: `image_[sender]_[timestamp].png`
+- Use the file path from the message to access the image

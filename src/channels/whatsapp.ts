@@ -6,6 +6,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   WASocket,
+  downloadMediaMessage,
   fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   normalizeMessageContent,
@@ -19,6 +20,7 @@ import {
 } from '../config.js';
 import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
 import { logger } from '../logger.js';
+import { saveMedia } from '../media.js';
 import {
   Channel,
   OnInboundMessage,
@@ -208,8 +210,50 @@ export class WhatsAppChannel implements Channel {
             normalized.videoMessage?.caption ||
             '';
 
-          // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
-          if (!content) continue;
+          // Skip protocol messages with no text content
+          if (!content && !normalized.imageMessage) continue;
+
+          let finalContent = content;
+
+          // Handle image download
+          if (normalized.imageMessage) {
+            try {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                {
+                  logger: logger as any,
+                  reuploadRequest: this.sock.updateMediaMessage,
+                },
+              )) as Buffer;
+
+              if (buffer && buffer.length > 0) {
+                const group = groups[chatJid];
+                const filename = await saveMedia(
+                  group.folder,
+                  buffer,
+                  '.jpg',
+                  'photo',
+                );
+                const groupDir = path.resolve(
+                  process.cwd(),
+                  'groups',
+                  group.folder,
+                );
+                const imagePath = path.join(groupDir, 'media', filename);
+
+                finalContent = `[Photo received]${content ? ' ' + content : ''}\nimage_file: ${imagePath}`;
+                (msg as any).image_file = imagePath; // Temporary pass-through
+                logger.info({ chatJid, filename }, 'WhatsApp photo saved');
+              } else {
+                finalContent = `[Photo]${content ? ' ' + content : ''}`;
+              }
+            } catch (err) {
+              logger.error({ err }, 'Failed to download WhatsApp image');
+              finalContent = `[Photo]${content ? ' ' + content : ''}`;
+            }
+          }
 
           const sender = msg.key.participant || msg.key.remoteJid || '';
           const senderName = msg.pushName || sender.split('@')[0];
@@ -221,17 +265,18 @@ export class WhatsAppChannel implements Channel {
           // (even in DMs/self-chat) so we check for that.
           const isBotMessage = ASSISTANT_HAS_OWN_NUMBER
             ? fromMe
-            : content.startsWith(`${ASSISTANT_NAME}:`);
+            : finalContent.startsWith(`${ASSISTANT_NAME}:`);
 
           this.opts.onMessage(chatJid, {
             id: msg.key.id || '',
             chat_jid: chatJid,
             sender,
             sender_name: senderName,
-            content,
+            content: finalContent,
             timestamp,
             is_from_me: fromMe,
             is_bot_message: isBotMessage,
+            image_file: (msg as any).image_file,
           });
         }
       }
