@@ -59,6 +59,8 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { processVision } from './vision.js';
+import { ANTHROPIC_BASE_URL } from './config.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -181,6 +183,36 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
+
+  // Check for vision messages if multimodal backend is configured
+  if (ANTHROPIC_BASE_URL) {
+    const visionMessage = missedMessages.find((m) => m.image_file);
+    if (visionMessage && visionMessage.image_file) {
+      logger.info({ chatJid }, 'Detected vision message, augmenting prompt');
+      await channel.setTyping?.(chatJid, true);
+      try {
+        const visionPrompt =
+          visionMessage.content
+            .replace(/\[Photo received\].*?\nimage_file: .*$/, '')
+            .trim() || '이 이미지를 설명해줘.';
+        const analysisResult = await processVision(
+          visionMessage.image_file,
+          visionPrompt,
+        );
+
+        // Augment the message content so the Claude agent sees the analysis
+        visionMessage.content = `[사용자가 보낸 사진 분석 결과]\n${analysisResult}\n\n[사용자 메시지]\n${visionMessage.content}`;
+
+        logger.info({ chatJid }, 'Vision analysis integrated into prompt');
+        // Continue to normal agent processing so it can respond to the user
+      } catch (err) {
+        logger.error(
+          { err },
+          'Vision processing failed, falling back to agent without analysis',
+        );
+      }
+    }
+  }
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -423,6 +455,35 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
+          // Check for vision in piped messages
+          if (ANTHROPIC_BASE_URL) {
+            const visionMessage = messagesToSend.find((m) => m.image_file);
+            if (visionMessage && visionMessage.image_file) {
+              logger.info(
+                { chatJid },
+                'Detected vision message in loop, augmenting prompt',
+              );
+              channel.setTyping?.(chatJid, true)?.catch(() => {});
+              try {
+                const visionPrompt =
+                  visionMessage.content
+                    .replace(/\[Photo received\].*?\nimage_file: .*$/, '')
+                    .trim() || '이 이미지를 설명해줘.';
+                const analysisResult = await processVision(
+                  visionMessage.image_file,
+                  visionPrompt,
+                );
+                visionMessage.content = `[사용자가 보낸 사진 분석 결과]\n${analysisResult}\n\n[사용자 메시지]\n${visionMessage.content}`;
+                logger.info(
+                  { chatJid },
+                  'Vision analysis integrated into prompt',
+                );
+              } catch (err) {
+                logger.error({ err }, 'Vision processing in loop failed');
+              }
+            }
+          }
+
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (queue.sendMessage(chatJid, formatted)) {

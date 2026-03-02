@@ -1,7 +1,10 @@
+import https from 'https';
+import path from 'path';
 import { Bot } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { logger } from '../logger.js';
+import { saveMedia } from '../media.js';
 import {
   Channel,
   OnChatMetadata,
@@ -163,7 +166,76 @@ export class TelegramChannel implements Channel {
       });
     };
 
-    this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
+    this.bot.on('message:photo', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      try {
+        const file = await ctx.getFile();
+        const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+
+        const buffer = await new Promise<Buffer>((resolve, reject) => {
+          https
+            .get(
+              fileUrl,
+              {
+                family: 4, // Force IPv4 to avoid ENETUNREACH/ETIMEDOUT issues with IPv6
+                timeout: 30000,
+              },
+              (res) => {
+                const chunks: any[] = [];
+                res.on('data', (chunk) => chunks.push(chunk));
+                res.on('end', () => resolve(Buffer.concat(chunks)));
+                res.on('error', reject);
+              },
+            )
+            .on('error', reject);
+        });
+
+        const filename = await saveMedia(group.folder, buffer, '.jpg', 'photo');
+        const groupDir = path.resolve(process.cwd(), 'groups', group.folder);
+        const imagePath = path.join(groupDir, 'media', filename);
+
+        const timestamp = new Date(ctx.message.date * 1000).toISOString();
+        const senderName =
+          ctx.from?.first_name ||
+          ctx.from?.username ||
+          ctx.from?.id.toString() ||
+          'Unknown';
+        const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+
+        // Store chat metadata for discovery
+        const isGroup =
+          ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+        this.opts.onChatMetadata(
+          chatJid,
+          timestamp,
+          undefined,
+          'telegram',
+          isGroup,
+        );
+
+        this.opts.onMessage(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          sender: ctx.from?.id?.toString() || '',
+          sender_name: senderName,
+          content: `[Photo received]${caption}\nimage_file: ${imagePath}`,
+          timestamp,
+          is_from_me: false,
+          image_file: imagePath,
+        });
+
+        logger.info(
+          { chatJid, filename, sender: senderName },
+          'Telegram photo downloaded and stored',
+        );
+      } catch (err) {
+        logger.error({ err }, 'Failed to download Telegram photo');
+        storeNonText(ctx, '[Photo]');
+      }
+    });
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
     this.bot.on('message:voice', (ctx) => storeNonText(ctx, '[Voice message]'));
     this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));

@@ -11,6 +11,9 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_ONLY',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
 ]);
 
 export const ASSISTANT_NAME =
@@ -82,3 +85,13 @@ export const TELEGRAM_BOT_TOKEN =
   process.env.TELEGRAM_BOT_TOKEN || envConfig.TELEGRAM_BOT_TOKEN || '';
 export const TELEGRAM_ONLY =
   (process.env.TELEGRAM_ONLY || envConfig.TELEGRAM_ONLY) === 'true';
+
+// Anthropic / Multimodal configuration
+export const ANTHROPIC_BASE_URL =
+  process.env.ANTHROPIC_BASE_URL || envConfig.ANTHROPIC_BASE_URL || '';
+export const ANTHROPIC_API_KEY =
+  process.env.ANTHROPIC_API_KEY || envConfig.ANTHROPIC_API_KEY || '';
+export const ANTHROPIC_DEFAULT_SONNET_MODEL =
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+  envConfig.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+  '';
