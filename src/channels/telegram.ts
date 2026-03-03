@@ -31,7 +31,11 @@ export class TelegramChannel implements Channel {
   }
 
   async connect(): Promise<void> {
-    this.bot = new Bot(this.botToken);
+    // Force IPv4 for all API calls (WSL2 has unreliable IPv6 to Telegram)
+    const ipv4Agent = new https.Agent({ family: 4 });
+    this.bot = new Bot(this.botToken, {
+      client: { baseFetchConfig: { agent: ipv4Agent } },
+    });
 
     // Command to get chat ID (useful for registration)
     this.bot.command('chatid', (ctx) => {
@@ -255,44 +259,47 @@ export class TelegramChannel implements Channel {
       logger.error({ err: err.message }, 'Telegram bot error');
     });
 
-    // Start polling — returns a Promise that resolves when started
-    logger.debug('Starting Telegram bot polling...');
-    this.bot
-      .start({
-        onStart: (botInfo) => {
-          logger.info(
-            { username: botInfo.username, id: botInfo.id },
-            'Telegram bot connected',
-          );
-          console.log(`\n  Telegram bot: @${botInfo.username}`);
-          console.log(
-            `  Send /chatid to the bot to get a chat's registration ID\n`,
-          );
-        },
-      })
-      .catch((err) => {
-        logger.error(
-          { err: err.message, stack: (err as Error).stack },
-          'Telegram bot polling error',
-        );
-      });
+    // Start polling with retry on transient network failures (e.g. WSL2 startup)
+    const startPolling = () => {
+      logger.debug('Starting Telegram bot polling...');
 
-    // Check if the bot can at least talk through API
-    try {
-      logger.debug('Checking Telegram bot API connectivity...');
-      const me = await Promise.race([
-        this.bot.api.getMe(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('getMe timeout (15s)')), 15000),
-        ),
-      ]);
-      logger.info({ username: me.username }, 'Telegram API check successful');
-    } catch (err) {
-      logger.error(
-        { err: (err as Error).message },
-        'Telegram API check failed',
-      );
-    }
+      // Watchdog: if onStart hasn't fired within 90s, the polling is hung — restart it.
+      // Telegram holds a ~60s lock per bot token after a prior connection, so we give
+      // it time to release before declaring a hang.
+      let connected = false;
+      const watchdog = setTimeout(() => {
+        if (!connected) {
+          logger.warn('Telegram bot polling hung (no onStart within 90s) — restarting');
+          this.bot!.stop().catch(() => {});
+          setTimeout(startPolling, 2_000);
+        }
+      }, 90_000);
+
+      this.bot!
+        .start({
+          onStart: (botInfo) => {
+            connected = true;
+            clearTimeout(watchdog);
+            logger.info(
+              { username: botInfo.username, id: botInfo.id },
+              'Telegram bot connected',
+            );
+            console.log(`\n  Telegram bot: @${botInfo.username}`);
+            console.log(
+              `  Send /chatid to the bot to get a chat's registration ID\n`,
+            );
+          },
+        })
+        .catch((err) => {
+          clearTimeout(watchdog);
+          logger.error(
+            { err: err.message },
+            'Telegram bot polling error — retrying in 10s',
+          );
+          setTimeout(startPolling, 10_000);
+        });
+    };
+    startPolling();
 
     return Promise.resolve();
   }
