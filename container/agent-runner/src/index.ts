@@ -519,6 +519,11 @@ async function main(): Promise<void> {
   for (const [key, value] of Object.entries(containerInput.secrets || {})) {
     sdkEnv[key] = value;
   }
+  // If ANTHROPIC_AUTH_TOKEN was not explicitly passed as a secret, remove it
+  // so claude-code falls back to ANTHROPIC_API_KEY instead of trying OAuth.
+  if (!containerInput.secrets?.['ANTHROPIC_AUTH_TOKEN']) {
+    delete sdkEnv['ANTHROPIC_AUTH_TOKEN'];
+  }
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');

@@ -269,35 +269,35 @@ export class TelegramChannel implements Channel {
       let connected = false;
       const watchdog = setTimeout(() => {
         if (!connected) {
-          logger.warn('Telegram bot polling hung (no onStart within 90s) — restarting');
+          logger.warn(
+            'Telegram bot polling hung (no onStart within 90s) — restarting',
+          );
           this.bot!.stop().catch(() => {});
           setTimeout(startPolling, 2_000);
         }
       }, 90_000);
 
-      this.bot!
-        .start({
-          onStart: (botInfo) => {
-            connected = true;
-            clearTimeout(watchdog);
-            logger.info(
-              { username: botInfo.username, id: botInfo.id },
-              'Telegram bot connected',
-            );
-            console.log(`\n  Telegram bot: @${botInfo.username}`);
-            console.log(
-              `  Send /chatid to the bot to get a chat's registration ID\n`,
-            );
-          },
-        })
-        .catch((err) => {
+      this.bot!.start({
+        onStart: (botInfo) => {
+          connected = true;
           clearTimeout(watchdog);
-          logger.error(
-            { err: err.message },
-            'Telegram bot polling error — retrying in 10s',
+          logger.info(
+            { username: botInfo.username, id: botInfo.id },
+            'Telegram bot connected',
           );
-          setTimeout(startPolling, 10_000);
-        });
+          console.log(`\n  Telegram bot: @${botInfo.username}`);
+          console.log(
+            `  Send /chatid to the bot to get a chat's registration ID\n`,
+          );
+        },
+      }).catch((err) => {
+        clearTimeout(watchdog);
+        logger.error(
+          { err: err.message },
+          'Telegram bot polling error — retrying in 10s',
+        );
+        setTimeout(startPolling, 10_000);
+      });
     };
     startPolling();
 

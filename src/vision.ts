@@ -4,7 +4,7 @@ import { logger } from './logger.js';
 import {
   ANTHROPIC_BASE_URL,
   ANTHROPIC_API_KEY,
-  ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_MODEL,
 } from './config.js';
 
 export async function processVision(
@@ -13,7 +13,7 @@ export async function processVision(
 ): Promise<string> {
   const baseUrl = ANTHROPIC_BASE_URL || 'https://openrouter.ai/api';
   const apiKey = ANTHROPIC_API_KEY;
-  const model = ANTHROPIC_DEFAULT_SONNET_MODEL || 'qwen/qwen-2-vl-72b-instruct';
+  const model = ANTHROPIC_DEFAULT_MODEL;
 
   logger.info(
     { imagePath, model, baseUrl },

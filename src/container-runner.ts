@@ -205,12 +205,21 @@ function buildVolumeMounts(
  * Secrets are never written to disk or mounted as files.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile([
+  const secrets = readEnvFile([
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   ]);
+  // SDK uses ANTHROPIC_DEFAULT_SONNET_MODEL as the main model key.
+  // Remap our HAIKU_MODEL value so the SDK picks it up as the default model.
+  // Keep ANTHROPIC_DEFAULT_HAIKU_MODEL as-is so the SDK also uses it for
+  // internal small/fast operations instead of falling back to claude-haiku-4-5-20251001.
+  if (secrets['ANTHROPIC_DEFAULT_HAIKU_MODEL']) {
+    secrets['ANTHROPIC_DEFAULT_SONNET_MODEL'] = secrets['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+  }
+  return secrets;
 }
 
 function buildContainerArgs(
