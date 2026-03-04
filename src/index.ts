@@ -43,6 +43,7 @@ import {
   setRegisteredGroup,
   setRouterState,
   setSession,
+  deleteSession,
   storeChatMetadata,
   storeMessage,
 } from './db.js';
@@ -302,6 +303,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  _isRetry = false,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -332,11 +334,16 @@ async function runAgent(
   );
 
   // Wrap onOutput to track session ID from streamed results
+  let promptTooLong = false;
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
+        }
+        if (output.result === 'Prompt is too long') {
+          promptTooLong = true;
+          return;
         }
         await onOutput(output);
       }
@@ -364,6 +371,17 @@ async function runAgent(
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;
       setSession(group.folder, output.newSessionId);
+    }
+
+    // Auto-reset session and retry once if context was too long
+    if (promptTooLong && !_isRetry) {
+      logger.warn(
+        { group: group.name },
+        'Prompt too long — resetting session and retrying',
+      );
+      delete sessions[group.folder];
+      deleteSession(group.folder);
+      return runAgent(group, prompt, chatJid, onOutput, true);
     }
 
     if (output.status === 'error') {
