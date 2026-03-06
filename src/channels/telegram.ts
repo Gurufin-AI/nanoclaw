@@ -12,6 +12,11 @@ import {
   RegisteredGroup,
 } from '../types.js';
 
+import { registerChannel, ChannelOpts } from './registry.js';
+import { TELEGRAM_BOT_TOKEN } from '../config.js';
+
+const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
@@ -377,3 +382,8 @@ export class TelegramChannel implements Channel {
     }
   }
 }
+
+registerChannel('telegram', (opts: ChannelOpts) => {
+  if (!TELEGRAM_BOT_TOKEN) return null;
+  return new TelegramChannel(TELEGRAM_BOT_TOKEN, opts);
+});
