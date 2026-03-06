@@ -2,16 +2,7 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import makeWASocket, {
-  Browsers,
-  DisconnectReason,
-  WASocket,
-  downloadMediaMessage,
-  fetchLatestWaWebVersion,
-  makeCacheableSignalKeyStore,
-  normalizeMessageContent,
-  useMultiFileAuthState,
-} from '@whiskeysockets/baileys';
+import { ConnectionState, DisconnectReason, WASocket, downloadMediaMessage, fetchLatestWaWebVersion, makeCacheableSignalKeyStore, normalizeMessageContent, useMultiFileAuthState } from '@whiskeysockets/baileys';
 
 import {
   ASSISTANT_HAS_OWN_NUMBER,
@@ -28,6 +19,9 @@ import {
   RegisteredGroup,
 } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
+import makeWASocket, {
+  Browsers,
+} from '@whiskeysockets/baileys';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -83,7 +77,7 @@ export class WhatsAppChannel implements Channel {
       browser: Browsers.macOS('Chrome'),
     });
 
-    this.sock.ev.on('connection.update', (update) => {
+    this.sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -173,7 +167,7 @@ export class WhatsAppChannel implements Channel {
 
     this.sock.ev.on('creds.update', saveCreds);
 
-    this.sock.ev.on('messages.upsert', async ({ messages }) => {
+    this.sock.ev.on('messages.upsert', async ({ messages }: { messages: any[] }) => {
       for (const msg of messages) {
         if (!msg.message) continue;
         // Unwrap container types (viewOnceMessageV2, ephemeralMessage,
