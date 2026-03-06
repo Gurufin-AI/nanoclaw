@@ -217,7 +217,8 @@ function readSecrets(): Record<string, string> {
   // Keep ANTHROPIC_DEFAULT_HAIKU_MODEL as-is so the SDK also uses it for
   // internal small/fast operations instead of falling back to claude-haiku-4-5-20251001.
   if (secrets['ANTHROPIC_DEFAULT_HAIKU_MODEL']) {
-    secrets['ANTHROPIC_DEFAULT_SONNET_MODEL'] = secrets['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+    secrets['ANTHROPIC_DEFAULT_SONNET_MODEL'] =
+      secrets['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
   }
   return secrets;
 }
