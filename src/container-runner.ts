@@ -222,6 +222,9 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'OR_SITE_URL',
+    'OR_APP_NAME',
   ]);
   // SDK uses ANTHROPIC_DEFAULT_SONNET_MODEL as the main model key.
   // Remap our HAIKU_MODEL value so the SDK picks it up as the default model.
