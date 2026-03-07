@@ -396,10 +396,18 @@ async function runQuery(
     ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n\n${globalClaudeMd}` }
     : { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}` };
 
+  // Get the model from environment, default to sonnet if not specified
+  const modelId = sdkEnv['ANTHROPIC_DEFAULT_SONNET_MODEL'];
+  if (modelId) {
+    log(`Bypassing SDK validation to use custom model: ${modelId}`);
+  }
+
   for await (const message of query({
     prompt: stream,
     options: {
       cwd: '/workspace/group',
+      // Force the SDK to use our OpenRouter model ID by bypassing type validation
+      model: modelId as any,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
