@@ -75,7 +75,9 @@ export const TRIGGER_PATTERN = new RegExp(
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses system timezone by default
 export const TIMEZONE =
-  process.env.TZ || envConfig.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  process.env.TZ ||
+  envConfig.TZ ||
+  Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Telegram configuration
 export const TELEGRAM_BOT_TOKEN =
