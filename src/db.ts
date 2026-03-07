@@ -352,6 +352,7 @@ export function getNewMessages(
       AND is_bot_message = 0 AND content NOT LIKE ?
       AND content != '' AND content IS NOT NULL
     ORDER BY timestamp
+    LIMIT ?
   `;
 
   const rows = db

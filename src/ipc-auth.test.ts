@@ -649,6 +649,7 @@ describe('register_group success', () => {
         name: 'New Group',
         folder: 'new-group',
         trigger: '@Andy',
+        channel: 'whatsapp',
       },
       'whatsapp_main',
       true,

@@ -416,9 +416,10 @@ async function runQuery(
   }
 
   const channelInfo = `[Platform: ${containerInput.channel}]`;
+  const toneInstruction = 'If the user\'s message doesn\'t require any specific action or tool use, provide a brief, helpful response or acknowledgment instead of remaining silent.';
   const systemPrompt = globalClaudeMd
-    ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n\n${globalClaudeMd}` }
-    : { type: 'preset' as const, preset: 'claude_code' as const, append: channelInfo };
+    ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n\n${globalClaudeMd}` }
+    : { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}` };
 
   for await (const message of query({
     prompt: stream,
@@ -481,7 +482,8 @@ async function runQuery(
     if (message.type === 'result') {
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      const errDetail = 'error' in message ? ` error=${(message as { error?: any }).error?.message || JSON.stringify((message as { error?: any }).error)}` : '';
+      log(`Result #${resultCount}: subtype=${message.subtype} RAW=${JSON.stringify(message)}`);
       writeOutput({
         status: 'success',
         result: textResult || null,
