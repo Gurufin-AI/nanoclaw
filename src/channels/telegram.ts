@@ -334,18 +334,28 @@ export class TelegramChannel implements Channel {
             parse_mode: 'MarkdownV2',
           });
           success = true;
-          logger.info({ jid, length: chunk.length }, 'Telegram message sent (MarkdownV2)');
+          logger.info(
+            { jid, length: chunk.length },
+            'Telegram message sent (MarkdownV2)',
+          );
         } catch (err) {
           // If MarkdownV2 fails (likely due to parsing error), fallback to plain text
           try {
             await this.bot.api.sendMessage(numericId, chunk);
             success = true;
-            logger.info({ jid, length: chunk.length }, 'Telegram message sent (Plain Text fallback)');
+            logger.info(
+              { jid, length: chunk.length },
+              'Telegram message sent (Plain Text fallback)',
+            );
           } catch (fallbackErr) {
             retries--;
             if (retries > 0) {
               logger.warn(
-                { jid, err: (fallbackErr as Error).message, retriesLeft: retries },
+                {
+                  jid,
+                  err: (fallbackErr as Error).message,
+                  retriesLeft: retries,
+                },
                 'Failed to send Telegram message, retrying...',
               );
               await new Promise((resolve) => setTimeout(resolve, 2000));
