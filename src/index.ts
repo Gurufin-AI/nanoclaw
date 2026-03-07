@@ -295,6 +295,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
+  // Fallback: if agent finished successfully but sent no output to user,
+  // send a friendly acknowledgment so the user knows they weren't ignored.
+  if (!outputSentToUser && !hadError) {
+    logger.info(
+      { group: group.name },
+      'Agent finished without output, sending fallback acknowledgment',
+    );
+    await channel.sendMessage(
+      chatJid,
+      "I'm here! Let me know if there's anything I can help with.",
+    );
+  }
+
   return true;
 }
 

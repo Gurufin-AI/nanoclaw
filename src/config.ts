@@ -13,7 +13,8 @@ const envConfig = readEnvFile([
   'TELEGRAM_ONLY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
-  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'TZ',
 ]);
 
 export const ASSISTANT_NAME =
@@ -78,7 +79,7 @@ export const TRIGGER_PATTERN = new RegExp(
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses system timezone by default
 export const TIMEZONE =
-  process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  process.env.TZ || envConfig.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Telegram configuration
 export const TELEGRAM_BOT_TOKEN =
@@ -92,6 +93,6 @@ export const ANTHROPIC_BASE_URL =
 export const ANTHROPIC_API_KEY =
   process.env.ANTHROPIC_API_KEY || envConfig.ANTHROPIC_API_KEY || '';
 export const ANTHROPIC_DEFAULT_MODEL =
-  process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
-  envConfig.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+  envConfig.ANTHROPIC_DEFAULT_SONNET_MODEL ||
   '';

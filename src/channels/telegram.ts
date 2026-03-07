@@ -329,22 +329,32 @@ export class TelegramChannel implements Channel {
 
       while (retries > 0 && !success) {
         try {
-          await this.bot.api.sendMessage(numericId, chunk);
+          // Attempt to send as MarkdownV2 first for better formatting
+          await this.bot.api.sendMessage(numericId, chunk, {
+            parse_mode: 'MarkdownV2',
+          });
           success = true;
-          logger.info({ jid, length: chunk.length }, 'Telegram message sent');
+          logger.info({ jid, length: chunk.length }, 'Telegram message sent (MarkdownV2)');
         } catch (err) {
-          retries--;
-          if (retries > 0) {
-            logger.warn(
-              { jid, err: (err as Error).message, retriesLeft: retries },
-              'Failed to send Telegram message, retrying...',
-            );
-            await new Promise((resolve) => setTimeout(resolve, 2000)); // 2초 대기 후 재시도
-          } else {
-            logger.error(
-              { jid, err },
-              'Failed to send Telegram message after retries',
-            );
+          // If MarkdownV2 fails (likely due to parsing error), fallback to plain text
+          try {
+            await this.bot.api.sendMessage(numericId, chunk);
+            success = true;
+            logger.info({ jid, length: chunk.length }, 'Telegram message sent (Plain Text fallback)');
+          } catch (fallbackErr) {
+            retries--;
+            if (retries > 0) {
+              logger.warn(
+                { jid, err: (fallbackErr as Error).message, retriesLeft: retries },
+                'Failed to send Telegram message, retrying...',
+              );
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            } else {
+              logger.error(
+                { jid, err: fallbackErr },
+                'Failed to send Telegram message after retries',
+              );
+            }
           }
         }
       }
