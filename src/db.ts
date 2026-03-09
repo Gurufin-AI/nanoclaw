@@ -32,6 +32,9 @@ function createSchema(database: Database.Database): void {
       timestamp TEXT,
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0,
+      media_kind TEXT,
+      media_name TEXT,
+      media_file TEXT,
       image_file TEXT,
       PRIMARY KEY (id, chat_jid),
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
@@ -157,6 +160,25 @@ function createSchema(database: Database.Database): void {
     database.exec(
       `UPDATE registered_groups SET channel = 'telegram' WHERE jid LIKE 'tg:%'`,
     );
+  } catch {
+    /* column already exists */
+  }
+
+  // Add image_file column to messages if it doesn't exist
+  try {
+    database.exec(`ALTER TABLE messages ADD COLUMN media_kind TEXT`);
+  } catch {
+    /* column already exists */
+  }
+
+  try {
+    database.exec(`ALTER TABLE messages ADD COLUMN media_name TEXT`);
+  } catch {
+    /* column already exists */
+  }
+
+  try {
+    database.exec(`ALTER TABLE messages ADD COLUMN media_file TEXT`);
   } catch {
     /* column already exists */
   }
@@ -290,7 +312,7 @@ export function setLastGroupSync(): void {
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, media_kind, media_name, media_file, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -300,6 +322,9 @@ export function storeMessage(msg: NewMessage): void {
     msg.timestamp,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
+    msg.media_kind || null,
+    msg.media_name || null,
+    msg.media_file || null,
     msg.image_file || null,
   );
 }
@@ -316,10 +341,13 @@ export function storeMessageDirect(msg: {
   timestamp: string;
   is_from_me: boolean;
   is_bot_message?: boolean;
+  media_kind?: NewMessage['media_kind'];
+  media_name?: string;
+  media_file?: string;
   image_file?: string;
 }): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, media_kind, media_name, media_file, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -329,6 +357,9 @@ export function storeMessageDirect(msg: {
     msg.timestamp,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
+    msg.media_kind || null,
+    msg.media_name || null,
+    msg.media_file || null,
     msg.image_file || null,
   );
 }
@@ -347,7 +378,7 @@ export function getNewMessages(
   // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
     SELECT * FROM (
-      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, image_file
+      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file
       FROM messages
       WHERE timestamp > ? AND chat_jid IN (${placeholders})
         AND is_bot_message = 0 AND content NOT LIKE ?
@@ -360,13 +391,14 @@ export function getNewMessages(
   const rows = db
     .prepare(sql)
     .all(lastTimestamp, ...jids, `${botPrefix}:%`, limit) as NewMessage[];
+  const messages = rows.map(normalizeMessageRow);
 
   let newTimestamp = lastTimestamp;
-  for (const row of rows) {
+  for (const row of messages) {
     if (row.timestamp > newTimestamp) newTimestamp = row.timestamp;
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages, newTimestamp };
 }
 
 export function getMessagesSince(
@@ -380,7 +412,7 @@ export function getMessagesSince(
   // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
     SELECT * FROM (
-      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, image_file
+      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file
       FROM messages
       WHERE chat_jid = ? AND timestamp > ?
         AND is_bot_message = 0 AND content NOT LIKE ?
@@ -392,7 +424,17 @@ export function getMessagesSince(
   const rows = db
     .prepare(sql)
     .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
-  return rows;
+  return rows.map(normalizeMessageRow);
+}
+
+function normalizeMessageRow(row: NewMessage): NewMessage {
+  return {
+    ...row,
+    media_kind: row.media_kind ?? undefined,
+    media_name: row.media_name ?? undefined,
+    media_file: row.media_file ?? undefined,
+    image_file: row.image_file ?? undefined,
+  };
 }
 
 export function createTask(

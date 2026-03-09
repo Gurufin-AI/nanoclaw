@@ -52,6 +52,9 @@ export interface NewMessage {
   timestamp: string;
   is_from_me?: boolean;
   is_bot_message?: boolean;
+  media_kind?: 'photo' | 'video' | 'voice' | 'audio' | 'document';
+  media_name?: string;
+  media_file?: string; // Absolute path to downloaded media on host
   image_file?: string; // Absolute path to image on host
 }
 

@@ -1,3 +1,4 @@
+import { toContainerMediaPath } from './attachments.js';
 import { Channel, NewMessage } from './types.js';
 import { formatLocalTime } from './timezone.js';
 
@@ -16,7 +17,20 @@ export function formatMessages(
 ): string {
   const lines = messages.map((m) => {
     const displayTime = formatLocalTime(m.timestamp, timezone);
-    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}">${escapeXml(m.content)}</message>`;
+    const attrs = [
+      `sender="${escapeXml(m.sender_name)}"`,
+      `time="${escapeXml(displayTime)}"`,
+    ];
+    if (m.media_kind) attrs.push(`media_kind="${escapeXml(m.media_kind)}"`);
+    if (m.media_name) attrs.push(`media_name="${escapeXml(m.media_name)}"`);
+    if (m.media_file) attrs.push(`media_file="${escapeXml(m.media_file)}"`);
+    const containerMediaFile = toContainerMediaPath(m.media_file);
+    if (containerMediaFile) {
+      attrs.push(`container_media_file="${escapeXml(containerMediaFile)}"`);
+    }
+    if (m.image_file) attrs.push(`image_file="${escapeXml(m.image_file)}"`);
+
+    return `<message ${attrs.join(' ')}>${escapeXml(m.content)}</message>`;
   });
 
   const header = `<context timezone="${escapeXml(timezone)}" />\n`;

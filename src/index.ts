@@ -25,6 +25,7 @@ import {
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
+import { augmentMessagesWithAttachmentContext } from './attachments.js';
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
@@ -74,6 +75,24 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+
+function logStructuredAttachments(chatJid: string, messages: NewMessage[]): void {
+  const attachments = messages.filter(
+    (m) => m.media_file && m.media_kind && m.media_kind !== 'photo',
+  );
+  if (attachments.length === 0) return;
+
+  logger.info(
+    {
+      chatJid,
+      attachments: attachments.map((m) => ({
+        kind: m.media_kind,
+        name: m.media_name,
+      })),
+    },
+    'Structured media attachments included in prompt',
+  );
+}
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -171,6 +190,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   );
 
   if (missedMessages.length === 0) return true;
+  logStructuredAttachments(chatJid, missedMessages);
+  await augmentMessagesWithAttachmentContext(missedMessages);
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
@@ -187,7 +208,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // Check for vision messages if multimodal backend is configured
   if (ANTHROPIC_BASE_URL) {
-    const visionMessage = missedMessages.find((m) => m.image_file);
+    const visionMessage = missedMessages.find(
+      (m) => m.media_kind === 'photo' && m.image_file,
+    );
     if (visionMessage && visionMessage.image_file) {
       logger.info({ chatJid }, 'Detected vision message, augmenting prompt');
       await channel.setTyping?.(chatJid, true);
@@ -486,9 +509,14 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
+          logStructuredAttachments(chatJid, messagesToSend);
+          await augmentMessagesWithAttachmentContext(messagesToSend);
+
           // Check for vision in piped messages
           if (ANTHROPIC_BASE_URL) {
-            const visionMessage = messagesToSend.find((m) => m.image_file);
+            const visionMessage = messagesToSend.find(
+              (m) => m.media_kind === 'photo' && m.image_file,
+            );
             if (visionMessage && visionMessage.image_file) {
               logger.info(
                 { chatJid },

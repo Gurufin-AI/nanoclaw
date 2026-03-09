@@ -28,6 +28,10 @@ function store(overrides: {
   content: string;
   timestamp: string;
   is_from_me?: boolean;
+  media_kind?: 'photo' | 'video' | 'voice' | 'audio' | 'document';
+  media_name?: string;
+  media_file?: string;
+  image_file?: string;
 }) {
   storeMessage({
     id: overrides.id,
@@ -37,6 +41,10 @@ function store(overrides: {
     content: overrides.content,
     timestamp: overrides.timestamp,
     is_from_me: overrides.is_from_me ?? false,
+    media_kind: overrides.media_kind,
+    media_name: overrides.media_name,
+    media_file: overrides.media_file,
+    image_file: overrides.image_file,
   });
 }
 
@@ -65,6 +73,33 @@ describe('storeMessage', () => {
     expect(messages[0].sender).toBe('123@s.whatsapp.net');
     expect(messages[0].sender_name).toBe('Alice');
     expect(messages[0].content).toBe('hello world');
+  });
+
+  it('stores and retrieves media_file metadata', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+
+    store({
+      id: 'msg-media',
+      chat_jid: 'group@g.us',
+      sender: '123@s.whatsapp.net',
+      sender_name: 'Alice',
+      content: '[Document received]\nfile: /tmp/report.pdf',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      media_kind: 'document',
+      media_name: 'report.pdf',
+      media_file: '/tmp/report.pdf',
+    });
+
+    const messages = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0].media_kind).toBe('document');
+    expect(messages[0].media_name).toBe('report.pdf');
+    expect(messages[0].media_file).toBe('/tmp/report.pdf');
+    expect(messages[0].image_file).toBeUndefined();
   });
 
   it('filters out empty content', () => {

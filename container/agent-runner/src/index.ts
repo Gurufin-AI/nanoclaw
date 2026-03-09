@@ -392,9 +392,11 @@ async function runQuery(
 
   const channelInfo = `[Platform: ${containerInput.channel}]`;
   const toneInstruction = 'If the user\'s message doesn\'t require any specific action or tool use, provide a brief, helpful response or acknowledgment instead of remaining silent.';
+  const attachmentInstruction =
+    'If a message includes container_media_file, that path is readable inside the container. Use the Read tool on container_media_file to inspect attached documents and files. For PDFs, use Read directly on the PDF path instead of asking the user to paste or summarize the file manually.';
   const systemPrompt = globalClaudeMd
-    ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n\n${globalClaudeMd}` }
-    : { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}` };
+    ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n${attachmentInstruction}\n\n${globalClaudeMd}` }
+    : { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n${attachmentInstruction}` };
 
   // Get the model from environment, default to sonnet if not specified
   const modelId = sdkEnv['ANTHROPIC_DEFAULT_SONNET_MODEL'];
