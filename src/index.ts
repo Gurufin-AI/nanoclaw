@@ -75,6 +75,7 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+const PLACEHOLDER_OUTPUT_RESULT = '__NANOCLAW_PLACEHOLDER_OUTPUT__';
 
 function logStructuredAttachments(
   chatJid: string,
@@ -374,6 +375,7 @@ async function runAgent(
 
   // Wrap onOutput to track session ID from streamed results
   let promptTooLong = false;
+  let placeholderOutput = false;
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
@@ -382,6 +384,15 @@ async function runAgent(
         }
         if (output.result === 'Prompt is too long') {
           promptTooLong = true;
+          return;
+        }
+        if (output.result === PLACEHOLDER_OUTPUT_RESULT) {
+          placeholderOutput = true;
+          logger.warn(
+            { group: group.name, sessionId: output.newSessionId || sessionId },
+            'Agent returned placeholder output, will reset session and retry',
+          );
+          queue.closeStdin(chatJid);
           return;
         }
         await onOutput(output);
@@ -417,6 +428,16 @@ async function runAgent(
       logger.warn(
         { group: group.name },
         'Prompt too long — resetting session and retrying',
+      );
+      delete sessions[group.folder];
+      deleteSession(group.folder);
+      return runAgent(group, prompt, chatJid, onOutput, true);
+    }
+
+    if (placeholderOutput && !_isRetry) {
+      logger.warn(
+        { group: group.name },
+        'Placeholder output detected — resetting session and retrying',
       );
       delete sessions[group.folder];
       deleteSession(group.folder);

@@ -55,6 +55,15 @@ interface SDKUserMessage {
   session_id: string;
 }
 
+interface AssistantContentBlock {
+  type?: string;
+  text?: string;
+}
+
+interface AssistantMessagePayload {
+  content?: string | AssistantContentBlock[];
+}
+
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
@@ -107,6 +116,7 @@ async function readStdin(): Promise<string> {
 
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const PLACEHOLDER_OUTPUT_RESULT = '__NANOCLAW_PLACEHOLDER_OUTPUT__';
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
@@ -116,6 +126,38 @@ function writeOutput(output: ContainerOutput): void {
 
 function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
+}
+
+function extractAssistantText(message: { message?: AssistantMessagePayload }): string | null {
+  const content = message.message?.content;
+  if (typeof content === 'string') {
+    const trimmed = content.trim();
+    return trimmed || null;
+  }
+  if (!Array.isArray(content)) return null;
+
+  // Ignore assistant turns that also contain tool calls or other block types.
+  // We only want the final user-facing reply, not intermediate tool preambles.
+  const hasNonTextBlocks = content.some(
+    (block) => block && block.type && block.type !== 'text',
+  );
+  if (hasNonTextBlocks) return null;
+
+  const text = content
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text!.trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+
+  if (!text || isPlaceholderResult(text)) return null;
+  return text;
+}
+
+function isPlaceholderResult(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  return /^\([^)]+\)$/.test(trimmed);
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
@@ -364,6 +406,7 @@ async function runQuery(
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
+  let lastAssistantText: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
 
@@ -451,6 +494,13 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+      log(`Assistant RAW=${JSON.stringify(message)}`);
+      const assistantText = extractAssistantText(
+        message as { message?: AssistantMessagePayload },
+      );
+      if (assistantText) {
+        lastAssistantText = assistantText;
+      }
     }
 
     if (message.type === 'system' && message.subtype === 'init') {
@@ -465,14 +515,18 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      const errDetail = 'error' in message ? ` error=${(message as { error?: any }).error?.message || JSON.stringify((message as { error?: any }).error)}` : '';
+      const textResult =
+        'result' in message ? (message as { result?: string }).result : null;
+      const outboundText = lastAssistantText
+        || (isPlaceholderResult(textResult) ? null : textResult)
+        || null;
       log(`Result #${resultCount}: subtype=${message.subtype} RAW=${JSON.stringify(message)}`);
       writeOutput({
         status: 'success',
-        result: textResult || null,
+        result: outboundText || (isPlaceholderResult(textResult) ? PLACEHOLDER_OUTPUT_RESULT : null),
         newSessionId
       });
+      lastAssistantText = undefined;
     }
   }
 
