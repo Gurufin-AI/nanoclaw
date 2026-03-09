@@ -76,7 +76,10 @@ let messageLoopRunning = false;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
-function logStructuredAttachments(chatJid: string, messages: NewMessage[]): void {
+function logStructuredAttachments(
+  chatJid: string,
+  messages: NewMessage[],
+): void {
   const attachments = messages.filter(
     (m) => m.media_file && m.media_kind && m.media_kind !== 'photo',
   );

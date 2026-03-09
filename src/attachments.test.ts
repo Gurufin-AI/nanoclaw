@@ -21,9 +21,9 @@ function makeMessage(overrides: Partial<NewMessage> = {}): NewMessage {
 
 describe('toContainerMediaPath', () => {
   it('maps a stored host path into the container media directory', () => {
-    expect(toContainerMediaPath('/tmp/groups/test-group/media/report.pdf')).toBe(
-      '/workspace/group/media/report.pdf',
-    );
+    expect(
+      toContainerMediaPath('/tmp/groups/test-group/media/report.pdf'),
+    ).toBe('/workspace/group/media/report.pdf');
   });
 
   it('returns undefined when no media file exists', () => {
@@ -43,7 +43,9 @@ describe('buildAttachmentInstruction', () => {
 
     expect(result).toContain('[Attachment metadata]');
     expect(result).toContain('kind: document');
-    expect(result).toContain('container_path: /workspace/group/media/report.pdf');
+    expect(result).toContain(
+      'container_path: /workspace/group/media/report.pdf',
+    );
     expect(result).toContain('use the Read tool');
     expect(result).toContain('for PDFs, use Read directly');
   });
@@ -73,6 +75,8 @@ describe('augmentMessagesWithAttachmentContext', () => {
     await augmentMessagesWithAttachmentContext([msg]);
 
     expect(msg.content).toBe(once);
-    expect(msg.content).toContain('container_path: /workspace/group/media/report.pdf');
+    expect(msg.content).toContain(
+      'container_path: /workspace/group/media/report.pdf',
+    );
   });
 });

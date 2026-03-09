@@ -36,7 +36,9 @@ vi.mock('../media.js', () => ({
 }));
 
 vi.mock('../group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn((groupFolder: string) => `/tmp/groups/${groupFolder}`),
+  resolveGroupFolderPath: vi.fn(
+    (groupFolder: string) => `/tmp/groups/${groupFolder}`,
+  ),
 }));
 
 vi.mock('https', () => ({
@@ -633,7 +635,9 @@ describe('TelegramChannel', () => {
 
       const ctx = createMediaCtx({
         caption: 'Look at this',
-        getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_123.jpg' }),
+        getFile: vi
+          .fn()
+          .mockResolvedValue({ file_path: 'photos/file_123.jpg' }),
       });
       await triggerMediaMessage('message:photo', ctx);
 
@@ -663,7 +667,8 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Video received]\nfile: /tmp/groups/test-group/media/video_saved.mp4',
+          content:
+            '[Video received]\nfile: /tmp/groups/test-group/media/video_saved.mp4',
           media_kind: 'video',
           media_name: 'clip.mp4',
           media_file: '/tmp/groups/test-group/media/video_saved.mp4',
@@ -797,7 +802,9 @@ describe('TelegramChannel', () => {
       await channel.connect();
 
       const ctx = createMediaCtx({
-        getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_123.jpg' }),
+        getFile: vi
+          .fn()
+          .mockResolvedValue({ file_path: 'photos/file_123.jpg' }),
       });
       await triggerMediaMessage('message:photo', ctx);
 
@@ -821,7 +828,10 @@ describe('TelegramChannel', () => {
 
       await channel.sendMessage('tg:100200300', 'Hello');
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith('100200300', 'Hello');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '100200300',
+        'Hello',
+      );
     });
 
     it('strips tg: prefix from JID', async () => {
@@ -846,8 +856,16 @@ describe('TelegramChannel', () => {
       await channel.sendMessage('tg:100200300', longText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(1, '100200300', 'x'.repeat(4096));
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(2, '100200300', 'x'.repeat(904));
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        'x'.repeat(4096),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        'x'.repeat(904),
+      );
     });
 
     it('sends exactly one message at 4096 characters', async () => {
@@ -866,7 +884,9 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      currentBot().api.sendMessage.mockRejectedValue(new Error('Network error'));
+      currentBot().api.sendMessage.mockRejectedValue(
+        new Error('Network error'),
+      );
 
       await expect(
         channel.sendMessage('tg:100200300', 'Will fail'),

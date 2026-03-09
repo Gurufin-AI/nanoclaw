@@ -12,7 +12,11 @@ export function toContainerMediaPath(mediaFile?: string): string | undefined {
 }
 
 export function buildAttachmentInstruction(message: NewMessage): string | null {
-  if (!message.media_file || !message.media_kind || message.media_kind === 'photo') {
+  if (
+    !message.media_file ||
+    !message.media_kind ||
+    message.media_kind === 'photo'
+  ) {
     return null;
   }
 
@@ -23,9 +27,13 @@ export function buildAttachmentInstruction(message: NewMessage): string | null {
   lines.push(`kind: ${message.media_kind}`);
   if (message.media_name) lines.push(`name: ${message.media_name}`);
   lines.push(`container_path: ${containerPath}`);
-  lines.push('instruction: use the Read tool on container_path to inspect this attachment.');
+  lines.push(
+    'instruction: use the Read tool on container_path to inspect this attachment.',
+  );
   if (message.media_kind === 'document') {
-    lines.push('instruction: for PDFs, use Read directly on the PDF path instead of asking the user to paste the text.');
+    lines.push(
+      'instruction: for PDFs, use Read directly on the PDF path instead of asking the user to paste the text.',
+    );
   }
   return lines.join('\n');
 }

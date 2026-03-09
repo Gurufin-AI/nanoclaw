@@ -244,7 +244,9 @@ export class TelegramChannel implements Channel {
             if (res.statusCode !== 200) {
               res.resume();
               reject(
-                new Error(`Telegram file download failed with ${res.statusCode}`),
+                new Error(
+                  `Telegram file download failed with ${res.statusCode}`,
+                ),
               );
               return;
             }
@@ -346,7 +348,12 @@ export class TelegramChannel implements Channel {
       );
     });
     this.bot.on('message:voice', async (ctx) => {
-      await storeDownloadedMedia(ctx, 'voice', '[Voice message received]', '.ogg');
+      await storeDownloadedMedia(
+        ctx,
+        'voice',
+        '[Voice message received]',
+        '.ogg',
+      );
     });
     this.bot.on('message:audio', async (ctx) => {
       await storeDownloadedMedia(
@@ -477,7 +484,9 @@ export class TelegramChannel implements Channel {
     const watchdog = setTimeout(() => {
       if (started || this.shuttingDown) return;
 
-      logger.warn('Telegram bot polling hung (no onStart within 90s) — restarting');
+      logger.warn(
+        'Telegram bot polling hung (no onStart within 90s) — restarting',
+      );
       this.connected = false;
       this.bot?.stop();
       this.scheduleReconnect(onFirstConnect, 2_000);
@@ -560,7 +569,12 @@ export class TelegramChannel implements Channel {
   }
 
   private async flushOutgoingQueue(): Promise<void> {
-    if (!this.connected || !this.bot || this.flushing || this.outgoingQueue.length === 0) {
+    if (
+      !this.connected ||
+      !this.bot ||
+      this.flushing ||
+      this.outgoingQueue.length === 0
+    ) {
       return;
     }
 

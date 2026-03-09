@@ -102,7 +102,9 @@ describe('formatMessages', () => {
 
     expect(result).toContain('media_kind="document"');
     expect(result).toContain('media_name="report.pdf"');
-    expect(result).toContain('media_file="/tmp/groups/test-group/media/report.pdf"');
+    expect(result).toContain(
+      'media_file="/tmp/groups/test-group/media/report.pdf"',
+    );
     expect(result).toContain(
       'container_media_file="/workspace/group/media/report.pdf"',
     );
