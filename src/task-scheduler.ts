@@ -135,7 +135,11 @@ async function runTask(
     });
     // Still advance next_run so the task doesn't hammer every poll cycle
     const nextRun = computeNextRun(task);
-    updateTaskAfterRun(task.id, nextRun, `Error: Group not found: ${task.group_folder}`);
+    updateTaskAfterRun(
+      task.id,
+      nextRun,
+      `Error: Group not found: ${task.group_folder}`,
+    );
     return;
   }
 

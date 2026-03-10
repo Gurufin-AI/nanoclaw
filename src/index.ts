@@ -77,7 +77,6 @@ let messageLoopRunning = false;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
-
 function logStructuredAttachments(
   chatJid: string,
   messages: NewMessage[],
