@@ -189,6 +189,13 @@ async function runTask(
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
           scheduleClose();
+        } else if (streamedOutput.status === 'success') {
+          // Task completed but produced no result — notify so it's visible in logs.
+          // This is Pattern 1: next_run advances but user gets no message.
+          logger.warn(
+            { taskId: task.id, group: task.group_folder },
+            'Task completed with no result output — user was not notified',
+          );
         }
         if (streamedOutput.status === 'success') {
           deps.queue.notifyIdle(task.chat_jid);

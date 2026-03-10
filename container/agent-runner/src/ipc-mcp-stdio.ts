@@ -83,14 +83,16 @@ MESSAGING BEHAVIOR - The task agent's output is sent to the user or group. It ca
 • Only send a message when there's something to report (e.g., "notify me if...")
 • Never send a message (background maintenance tasks)
 
-SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
-• cron: Standard cron expression (e.g., "*/5 * * * *" for every 5 minutes, "0 9 * * *" for daily at 9am LOCAL time)
+SCHEDULE VALUE FORMAT (all times are LOCAL timezone = ${process.env.TZ || 'system local time'}):
+• cron: Standard cron expression where hours/minutes are LOCAL time — do NOT convert to UTC.
+  Examples: "0 9 * * *" = 9am local, "0 22 * * *" = 10pm local, "30 15 * * 1-5" = 3:30pm weekdays local.
+  If user says "10 PM KST", write "0 22 * * *" — NOT "0 13 * * *" (which would be 1pm local, 9 hours wrong).
 • interval: Milliseconds between runs (e.g., "300000" for 5 minutes, "3600000" for 1 hour)
 • once: Local time WITHOUT "Z" suffix (e.g., "2026-02-01T15:30:00"). Do NOT use UTC/Z suffix.`,
   {
     prompt: z.string().describe('What the agent should do when the task runs. For isolated mode, include all necessary context here.'),
     schedule_type: z.enum(['cron', 'interval', 'once']).describe('cron=recurring at specific times, interval=recurring every N ms, once=run once at specific time'),
-    schedule_value: z.string().describe('cron: "*/5 * * * *" | interval: milliseconds like "300000" | once: local timestamp like "2026-02-01T15:30:00" (no Z suffix!)'),
+    schedule_value: z.string().describe(`cron: LOCAL time expression like "0 22 * * *" (10pm local) — hours are local, never UTC-converted | interval: milliseconds like "300000" | once: local timestamp like "2026-02-01T15:30:00" (no Z suffix!)`),
     context_mode: z.enum(['group', 'isolated']).default('group').describe('group=runs with chat history and memory, isolated=fresh session (include context in prompt)'),
     target_group_jid: z.string().optional().describe('(Main group only) JID of the group to schedule the task for. Defaults to the current group.'),
   },
@@ -98,10 +100,11 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
     // Validate schedule_value before writing IPC
     if (args.schedule_type === 'cron') {
       try {
-        CronExpressionParser.parse(args.schedule_value);
+        // Parse with the same timezone the host will use, so validation matches execution
+        CronExpressionParser.parse(args.schedule_value, { tz: process.env.TZ || 'UTC' });
       } catch {
         return {
-          content: [{ type: 'text' as const, text: `Invalid cron: "${args.schedule_value}". Use format like "0 9 * * *" (daily 9am) or "*/5 * * * *" (every 5 min).` }],
+          content: [{ type: 'text' as const, text: `Invalid cron: "${args.schedule_value}". Use LOCAL time format like "0 9 * * *" (daily 9am local) or "*/5 * * * *" (every 5 min).` }],
           isError: true,
         };
       }
@@ -263,10 +266,10 @@ server.tool(
     if (args.schedule_type === 'cron' || (!args.schedule_type && args.schedule_value)) {
       if (args.schedule_value) {
         try {
-          CronExpressionParser.parse(args.schedule_value);
+          CronExpressionParser.parse(args.schedule_value, { tz: process.env.TZ || 'UTC' });
         } catch {
           return {
-            content: [{ type: 'text' as const, text: `Invalid cron: "${args.schedule_value}".` }],
+            content: [{ type: 'text' as const, text: `Invalid cron: "${args.schedule_value}". Use LOCAL time format like "0 9 * * *" (daily 9am local).` }],
             isError: true,
           };
         }

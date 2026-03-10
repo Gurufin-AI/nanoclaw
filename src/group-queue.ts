@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
+import { DATA_DIR, IDLE_TIMEOUT, MAX_CONCURRENT_CONTAINERS } from './config.js';
 import { logger } from './logger.js';
 
 interface QueuedTask {
@@ -244,11 +244,33 @@ export class GroupQueue {
       'Running queued task',
     );
 
+    // Watchdog: if the container promise never resolves (hung container), force-clear
+    // state after IDLE_TIMEOUT + 120s so the queue can recover.
+    // The container-level timeout fires at IDLE_TIMEOUT + 30s, so this gives it
+    // 90s of grace to resolve naturally before we forcibly unblock the queue.
+    const WATCHDOG_MS = IDLE_TIMEOUT + 120_000;
+    let watchdog: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      logger.error(
+        { groupJid, taskId: task.id, watchdogMs: WATCHDOG_MS },
+        'Task watchdog fired — container promise did not resolve, force-clearing queue state',
+      );
+      watchdog = null;
+      state.active = false;
+      state.isTaskContainer = false;
+      state.runningTaskId = null;
+      state.process = null;
+      state.containerName = null;
+      state.groupFolder = null;
+      this.activeCount = Math.max(0, this.activeCount - 1);
+      this.drainGroup(groupJid);
+    }, WATCHDOG_MS);
+
     try {
       await task.fn();
     } catch (err) {
       logger.error({ groupJid, taskId: task.id, err }, 'Error running task');
     } finally {
+      if (watchdog) clearTimeout(watchdog);
       state.active = false;
       state.isTaskContainer = false;
       state.runningTaskId = null;
