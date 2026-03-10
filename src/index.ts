@@ -9,6 +9,7 @@ import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
   IDLE_TIMEOUT,
+  PLACEHOLDER_OUTPUT_RESULT,
   POLL_INTERVAL,
   TIMEZONE,
   TRIGGER_PATTERN,
@@ -75,7 +76,7 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
-const PLACEHOLDER_OUTPUT_RESULT = '__NANOCLAW_PLACEHOLDER_OUTPUT__';
+
 
 function logStructuredAttachments(
   chatJid: string,

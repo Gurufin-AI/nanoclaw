@@ -2,13 +2,19 @@ import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
-import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import {
+  ASSISTANT_NAME,
+  PLACEHOLDER_OUTPUT_RESULT,
+  SCHEDULER_POLL_INTERVAL,
+  TIMEZONE,
+} from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
   writeTasksSnapshot,
 } from './container-runner.js';
 import {
+  deleteSession,
   getAllTasks,
   getDueTasks,
   getTaskById,
@@ -78,6 +84,7 @@ export interface SchedulerDependencies {
 async function runTask(
   task: ScheduledTask,
   deps: SchedulerDependencies,
+  _isRetry = false,
 ): Promise<void> {
   const startTime = Date.now();
   let groupDir: string;
@@ -126,6 +133,9 @@ async function runTask(
       result: null,
       error: `Group not found: ${task.group_folder}`,
     });
+    // Still advance next_run so the task doesn't hammer every poll cycle
+    const nextRun = computeNextRun(task);
+    updateTaskAfterRun(task.id, nextRun, `Error: Group not found: ${task.group_folder}`);
     return;
   }
 
@@ -148,6 +158,7 @@ async function runTask(
 
   let result: string | null = null;
   let error: string | null = null;
+  let placeholderOutput = false;
 
   // For group context mode, use the group's current session
   const sessions = deps.getSessions();
@@ -184,14 +195,23 @@ async function runTask(
       (proc, containerName) =>
         deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
       async (streamedOutput: ContainerOutput) => {
+        if (streamedOutput.result === PLACEHOLDER_OUTPUT_RESULT) {
+          // Container returned a placeholder — session is corrupt, will retry
+          placeholderOutput = true;
+          logger.warn(
+            { taskId: task.id, group: task.group_folder },
+            'Task got placeholder output, will reset session and retry',
+          );
+          deps.queue.closeStdin(task.chat_jid);
+          return;
+        }
         if (streamedOutput.result) {
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
           scheduleClose();
         } else if (streamedOutput.status === 'success') {
-          // Task completed but produced no result — notify so it's visible in logs.
-          // This is Pattern 1: next_run advances but user gets no message.
+          // Task completed but produced no result — visible in logs.
           logger.warn(
             { taskId: task.id, group: task.group_folder },
             'Task completed with no result output — user was not notified',
@@ -214,6 +234,17 @@ async function runTask(
     } else if (output.result) {
       // Result was already forwarded to the user via the streaming callback above
       result = output.result;
+    }
+
+    // Retry once with a fresh session if placeholder output was detected
+    if (placeholderOutput && !_isRetry) {
+      logger.warn(
+        { taskId: task.id },
+        'Placeholder output — resetting session and retrying task',
+      );
+      delete sessions[task.group_folder];
+      deleteSession(task.group_folder);
+      return runTask(task, deps, true);
     }
 
     logger.info(
