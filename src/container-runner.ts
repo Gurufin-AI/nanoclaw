@@ -57,6 +57,34 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+function syncAgentRunnerSource(srcDir: string, dstDir: string): void {
+  if (!fs.existsSync(srcDir)) return;
+  fs.mkdirSync(dstDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const srcPath = path.join(srcDir, entry.name);
+    const dstPath = path.join(dstDir, entry.name);
+
+    if (entry.isDirectory()) {
+      syncAgentRunnerSource(srcPath, dstPath);
+      continue;
+    }
+
+    // Runtime container builds should not compile test files from the mounted
+    // group-specific source tree because vitest is not installed there.
+    if (entry.name.endsWith('.test.ts')) {
+      try {
+        fs.unlinkSync(dstPath);
+      } catch {
+        // ignore missing files
+      }
+      continue;
+    }
+
+    fs.copyFileSync(srcPath, dstPath);
+  }
+}
+
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
@@ -191,8 +219,8 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  if (fs.existsSync(agentRunnerSrc)) {
+    syncAgentRunnerSource(agentRunnerSrc, groupAgentRunnerDir);
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,

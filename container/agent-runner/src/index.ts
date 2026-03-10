@@ -18,7 +18,15 @@ import fs from 'fs';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
-import { extractAssistantText, isPlaceholderResult } from './output.js';
+import {
+  shouldEnableAnthropicOpenAiProxy,
+  startAnthropicOpenAiProxy,
+} from './anthropic-openai-proxy.js';
+import {
+  extractAssistantText,
+  isPlaceholderResult,
+  type AssistantMessagePayload,
+} from './output.js';
 
 interface ContainerInput {
   prompt: string;
@@ -583,6 +591,10 @@ async function main(): Promise<void> {
       error: errorMessage
     });
     process.exit(1);
+  } finally {
+    if (proxyHandle) {
+      await proxyHandle.close().catch(() => {});
+    }
   }
 }
 
