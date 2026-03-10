@@ -62,6 +62,7 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { sanitizeOutboundText } from './output-sanitization.js';
 import { processVision } from './vision.js';
 import { ANTHROPIC_BASE_URL } from './config.js';
 
@@ -279,8 +280,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         typeof result.result === 'string'
           ? result.result
           : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      const text = sanitizeOutboundText(raw);
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
         await channel.sendMessage(chatJid, text);
@@ -395,6 +395,18 @@ async function runAgent(
           queue.closeStdin(chatJid);
           return;
         }
+        if (
+          typeof output.result === 'string' &&
+          !sanitizeOutboundText(output.result)
+        ) {
+          placeholderOutput = true;
+          logger.warn(
+            { group: group.name, sessionId: output.newSessionId || sessionId },
+            'Agent returned non-visible output, will reset session and retry',
+          );
+          queue.closeStdin(chatJid);
+          return;
+        }
         await onOutput(output);
       }
     : undefined;
@@ -437,7 +449,7 @@ async function runAgent(
     if (placeholderOutput && !_isRetry) {
       logger.warn(
         { group: group.name },
-        'Placeholder output detected — resetting session and retrying',
+        'Invalid agent output detected — resetting session and retrying',
       );
       delete sessions[group.folder];
       deleteSession(group.folder);

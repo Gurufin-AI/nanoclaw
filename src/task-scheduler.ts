@@ -25,6 +25,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
+import { sanitizeOutboundText } from './output-sanitization.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
 
 /**
@@ -209,6 +210,18 @@ async function runTask(
           deps.queue.closeStdin(task.chat_jid);
           return;
         }
+        if (
+          typeof streamedOutput.result === 'string' &&
+          !sanitizeOutboundText(streamedOutput.result)
+        ) {
+          placeholderOutput = true;
+          logger.warn(
+            { taskId: task.id, group: task.group_folder },
+            'Task got non-visible output, will reset session and retry',
+          );
+          deps.queue.closeStdin(task.chat_jid);
+          return;
+        }
         if (streamedOutput.result) {
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
@@ -240,11 +253,11 @@ async function runTask(
       result = output.result;
     }
 
-    // Retry once with a fresh session if placeholder output was detected
+    // Retry once with a fresh session if the agent output was invalid
     if (placeholderOutput && !_isRetry) {
       logger.warn(
         { taskId: task.id },
-        'Placeholder output — resetting session and retrying task',
+        'Invalid agent output — resetting session and retrying task',
       );
       delete sessions[task.group_folder];
       deleteSession(task.group_folder);

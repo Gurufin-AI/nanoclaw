@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
+import { extractAssistantText, isPlaceholderResult } from './output.js';
 
 interface ContainerInput {
   prompt: string;
@@ -53,15 +54,6 @@ interface SDKUserMessage {
   message: { role: 'user'; content: string };
   parent_tool_use_id: null;
   session_id: string;
-}
-
-interface AssistantContentBlock {
-  type?: string;
-  text?: string;
-}
-
-interface AssistantMessagePayload {
-  content?: string | AssistantContentBlock[];
 }
 
 const IPC_INPUT_DIR = '/workspace/ipc/input';
@@ -126,38 +118,6 @@ function writeOutput(output: ContainerOutput): void {
 
 function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
-}
-
-function extractAssistantText(message: { message?: AssistantMessagePayload }): string | null {
-  const content = message.message?.content;
-  if (typeof content === 'string') {
-    const trimmed = content.trim();
-    return trimmed || null;
-  }
-  if (!Array.isArray(content)) return null;
-
-  // Ignore assistant turns that also contain tool calls or other block types.
-  // We only want the final user-facing reply, not intermediate tool preambles.
-  const hasNonTextBlocks = content.some(
-    (block) => block && block.type && block.type !== 'text',
-  );
-  if (hasNonTextBlocks) return null;
-
-  const text = content
-    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text!.trim())
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-
-  if (!text || isPlaceholderResult(text)) return null;
-  return text;
-}
-
-function isPlaceholderResult(text: string | null | undefined): boolean {
-  if (!text) return false;
-  const trimmed = text.trim();
-  return /^\([^)]+\)$/.test(trimmed);
 }
 
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
