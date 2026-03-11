@@ -49,7 +49,11 @@ import {
   storeChatMetadata,
   storeMessage,
 } from './db.js';
-import { classifyOverflow, gracefulReset, OverflowKind } from './context-manager.js';
+import {
+  classifyOverflow,
+  gracefulReset,
+  OverflowKind,
+} from './context-manager.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
@@ -748,6 +752,8 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
+    writeTasksSnapshot: (gf, im, tasks) =>
+      writeTasksSnapshot(gf, im, tasks),
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
