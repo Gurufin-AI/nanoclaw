@@ -622,10 +622,16 @@ export function deleteSessionTranscript(
   try {
     if (fs.existsSync(transcriptPath)) {
       fs.unlinkSync(transcriptPath);
-      logger.info({ groupFolder, sessionId, transcriptPath }, 'Deleted oversized session transcript');
+      logger.info(
+        { groupFolder, sessionId, transcriptPath },
+        'Deleted oversized session transcript',
+      );
     }
   } catch (err) {
-    logger.warn({ groupFolder, sessionId, err }, 'Failed to delete session transcript');
+    logger.warn(
+      { groupFolder, sessionId, err },
+      'Failed to delete session transcript',
+    );
   }
 }
 

@@ -9,7 +9,6 @@ import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
   IDLE_TIMEOUT,
-  PLACEHOLDER_OUTPUT_RESULT,
   POLL_INTERVAL,
   TIMEZONE,
   TRIGGER_PATTERN,
@@ -50,6 +49,7 @@ import {
   storeChatMetadata,
   storeMessage,
 } from './db.js';
+import { classifyOverflow, gracefulReset, OverflowKind } from './context-manager.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
@@ -374,43 +374,37 @@ async function runAgent(
     new Set(Object.keys(registeredGroups)),
   );
 
-  // Wrap onOutput to track session ID from streamed results
-  let promptTooLong = false;
-  let placeholderOutput = false;
+  // Wrap onOutput to track session ID and detect context overflow
+  let overflowKind: OverflowKind = 'none';
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
         }
-        if (
-          output.result === 'Prompt is too long' ||
-          (typeof output.result === 'string' && output.result.includes('exceed_context_size_error'))
-        ) {
-          promptTooLong = true;
-          return;
-        }
-        if (output.result === PLACEHOLDER_OUTPUT_RESULT) {
-          placeholderOutput = true;
-          logger.warn(
-            { group: group.name, sessionId: output.newSessionId || sessionId },
-            'Agent returned placeholder output, will reset session and retry',
-          );
+
+        // Classify any overflow signal first.
+        const kind = classifyOverflow(output.result);
+        if (kind !== 'none') {
+          overflowKind = kind;
           queue.closeStdin(chatJid);
           return;
         }
+
+        // Non-visible output is treated the same as placeholder corruption.
         if (
           typeof output.result === 'string' &&
           !sanitizeOutboundText(output.result)
         ) {
-          placeholderOutput = true;
+          overflowKind = 'placeholder';
           logger.warn(
             { group: group.name, sessionId: output.newSessionId || sessionId },
-            'Agent returned non-visible output, will reset session and retry',
+            'Agent returned non-visible output — will attempt context recovery',
           );
           queue.closeStdin(chatJid);
           return;
         }
+
         await onOutput(output);
       }
     : undefined;
@@ -439,28 +433,33 @@ async function runAgent(
       setSession(group.folder, output.newSessionId);
     }
 
-    // Auto-reset session and retry once if context was too long
-    if (promptTooLong && !_isRetry) {
-      logger.warn(
-        { group: group.name },
-        'Prompt too long — resetting session and retrying',
-      );
-      const oldSessionId = sessions[group.folder];
-      delete sessions[group.folder];
-      deleteSession(group.folder);
-      if (oldSessionId) deleteSessionTranscript(group.folder, oldSessionId);
-      return runAgent(group, prompt, chatJid, onOutput, true);
-    }
+    // Handle context overflow: one-shot trim-then-reset, then retry once.
+    if (overflowKind !== 'none' && !_isRetry) {
+      const notify = async (msg: string) => {
+        const ch = findChannel(channels, chatJid);
+        await ch?.sendMessage(chatJid, msg).catch(() => {});
+      };
 
-    if (placeholderOutput && !_isRetry) {
-      logger.warn(
-        { group: group.name },
-        'Invalid agent output detected — resetting session and retrying',
-      );
-      const oldSessionId = sessions[group.folder];
-      delete sessions[group.folder];
-      deleteSession(group.folder);
-      if (oldSessionId) deleteSessionTranscript(group.folder, oldSessionId);
+      const result = await gracefulReset(overflowKind, {
+        groupFolder: group.folder,
+        sessionId: sessions[group.folder],
+        sessions,
+        notify,
+      });
+
+      if (result === 'no_retry') {
+        // input_too_large — user was notified; retrying would fail again.
+        return 'error';
+      }
+
+      // Update in-memory session to whatever gracefulReset decided.
+      if (result === undefined) {
+        delete sessions[group.folder];
+      } else {
+        sessions[group.folder] = result;
+        setSession(group.folder, result);
+      }
+
       return runAgent(group, prompt, chatJid, onOutput, true);
     }
 

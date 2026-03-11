@@ -4,7 +4,6 @@ import fs from 'fs';
 
 import {
   ASSISTANT_NAME,
-  PLACEHOLDER_OUTPUT_RESULT,
   SCHEDULER_POLL_INTERVAL,
   TIMEZONE,
 } from './config.js';
@@ -22,7 +21,9 @@ import {
   logTaskRun,
   updateTask,
   updateTaskAfterRun,
+  setSession,
 } from './db.js';
+import { classifyOverflow, gracefulReset, OverflowKind } from './context-manager.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -164,7 +165,7 @@ async function runTask(
 
   let result: string | null = null;
   let error: string | null = null;
-  let placeholderOutput = false;
+  let overflowKind: OverflowKind = 'none';
 
   // For group context mode, use the group's current session
   const sessions = deps.getSessions();
@@ -201,37 +202,23 @@ async function runTask(
       (proc, containerName) =>
         deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
       async (streamedOutput: ContainerOutput) => {
-        if (streamedOutput.result === PLACEHOLDER_OUTPUT_RESULT) {
-          // Container returned a placeholder — session is corrupt, will retry
-          placeholderOutput = true;
-          logger.warn(
-            { taskId: task.id, group: task.group_folder },
-            'Task got placeholder output, will reset session and retry',
-          );
+        // Classify any overflow signal first.
+        const kind = classifyOverflow(streamedOutput.result);
+        if (kind !== 'none') {
+          overflowKind = kind;
           deps.queue.closeStdin(task.chat_jid);
           return;
         }
-        if (
-          typeof streamedOutput.result === 'string' &&
-          streamedOutput.result.includes('exceed_context_size_error')
-        ) {
-          // Session history too large for model context — reset and retry fresh
-          placeholderOutput = true;
-          logger.warn(
-            { taskId: task.id, group: task.group_folder },
-            'Task context size exceeded, will reset session and retry',
-          );
-          deps.queue.closeStdin(task.chat_jid);
-          return;
-        }
+
+        // Non-visible output is treated as placeholder corruption.
         if (
           typeof streamedOutput.result === 'string' &&
           !sanitizeOutboundText(streamedOutput.result)
         ) {
-          placeholderOutput = true;
+          overflowKind = 'placeholder';
           logger.warn(
             { taskId: task.id, group: task.group_folder },
-            'Task got non-visible output, will reset session and retry',
+            'Task got non-visible output — will attempt context recovery',
           );
           deps.queue.closeStdin(task.chat_jid);
           return;
@@ -267,16 +254,31 @@ async function runTask(
       result = output.result;
     }
 
-    // Retry once with a fresh session if the agent output was invalid
-    if (placeholderOutput && !_isRetry) {
-      logger.warn(
-        { taskId: task.id },
-        'Invalid agent output — resetting session and retrying task',
-      );
-      const oldSessionId = sessions[task.group_folder];
-      delete sessions[task.group_folder];
-      deleteSession(task.group_folder);
-      if (oldSessionId) deleteSessionTranscript(task.group_folder, oldSessionId);
+    // Handle context overflow: one-shot trim-then-reset, then retry once.
+    if (overflowKind !== 'none' && !_isRetry) {
+      const notify = async (msg: string) => {
+        await deps.sendMessage(task.chat_jid, msg).catch(() => {});
+      };
+
+      const resetResult = await gracefulReset(overflowKind, {
+        groupFolder: task.group_folder,
+        sessionId: sessions[task.group_folder],
+        sessions,
+        notify,
+      });
+
+      if (resetResult === 'no_retry') {
+        // input_too_large — user was notified; retrying would fail again.
+        return;
+      }
+
+      if (resetResult === undefined) {
+        delete sessions[task.group_folder];
+      } else {
+        sessions[task.group_folder] = resetResult;
+        setSession(task.group_folder, resetResult);
+      }
+
       return runTask(task, deps, true);
     }
 
