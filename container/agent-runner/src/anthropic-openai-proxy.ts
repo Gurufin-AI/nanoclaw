@@ -208,7 +208,10 @@ export function anthropicRequestToOpenAiChat(
       if (textParts.length > 0 || toolCalls.length > 0) {
         messages.push({
           role: 'assistant',
-          content: textParts.join('\n').trim() || null,
+          // Use empty string instead of null for tool-only turns:
+          // llama.cpp's Qwen chat template can produce zero tokens when
+          // content is null, triggering a fatal "no tokens to decode" crash.
+          content: textParts.join('\n').trim() || '',
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         });
       }

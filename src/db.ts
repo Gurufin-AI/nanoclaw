@@ -604,6 +604,31 @@ export function deleteSession(groupFolder: string): void {
   db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
 }
 
+export function deleteSessionTranscript(
+  groupFolder: string,
+  sessionId: string,
+): void {
+  // Delete the on-disk .jsonl transcript so the SDK doesn't load the bloated
+  // conversation history when starting a fresh session.
+  const transcriptPath = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.claude',
+    'projects',
+    '-workspace-group',
+    `${sessionId}.jsonl`,
+  );
+  try {
+    if (fs.existsSync(transcriptPath)) {
+      fs.unlinkSync(transcriptPath);
+      logger.info({ groupFolder, sessionId, transcriptPath }, 'Deleted oversized session transcript');
+    }
+  } catch (err) {
+    logger.warn({ groupFolder, sessionId, err }, 'Failed to delete session transcript');
+  }
+}
+
 export function getAllSessions(): Record<string, string> {
   const rows = db
     .prepare('SELECT group_folder, session_id FROM sessions')

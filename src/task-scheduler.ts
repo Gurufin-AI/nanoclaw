@@ -15,6 +15,7 @@ import {
 } from './container-runner.js';
 import {
   deleteSession,
+  deleteSessionTranscript,
   getAllTasks,
   getDueTasks,
   getTaskById,
@@ -212,6 +213,19 @@ async function runTask(
         }
         if (
           typeof streamedOutput.result === 'string' &&
+          streamedOutput.result.includes('exceed_context_size_error')
+        ) {
+          // Session history too large for model context — reset and retry fresh
+          placeholderOutput = true;
+          logger.warn(
+            { taskId: task.id, group: task.group_folder },
+            'Task context size exceeded, will reset session and retry',
+          );
+          deps.queue.closeStdin(task.chat_jid);
+          return;
+        }
+        if (
+          typeof streamedOutput.result === 'string' &&
           !sanitizeOutboundText(streamedOutput.result)
         ) {
           placeholderOutput = true;
@@ -259,8 +273,10 @@ async function runTask(
         { taskId: task.id },
         'Invalid agent output — resetting session and retrying task',
       );
+      const oldSessionId = sessions[task.group_folder];
       delete sessions[task.group_folder];
       deleteSession(task.group_folder);
+      if (oldSessionId) deleteSessionTranscript(task.group_folder, oldSessionId);
       return runTask(task, deps, true);
     }
 

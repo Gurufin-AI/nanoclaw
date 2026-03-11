@@ -46,6 +46,7 @@ import {
   setRouterState,
   setSession,
   deleteSession,
+  deleteSessionTranscript,
   storeChatMetadata,
   storeMessage,
 } from './db.js';
@@ -382,7 +383,10 @@ async function runAgent(
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
         }
-        if (output.result === 'Prompt is too long') {
+        if (
+          output.result === 'Prompt is too long' ||
+          (typeof output.result === 'string' && output.result.includes('exceed_context_size_error'))
+        ) {
           promptTooLong = true;
           return;
         }
@@ -441,8 +445,10 @@ async function runAgent(
         { group: group.name },
         'Prompt too long — resetting session and retrying',
       );
+      const oldSessionId = sessions[group.folder];
       delete sessions[group.folder];
       deleteSession(group.folder);
+      if (oldSessionId) deleteSessionTranscript(group.folder, oldSessionId);
       return runAgent(group, prompt, chatJid, onOutput, true);
     }
 
@@ -451,8 +457,10 @@ async function runAgent(
         { group: group.name },
         'Invalid agent output detected — resetting session and retrying',
       );
+      const oldSessionId = sessions[group.folder];
       delete sessions[group.folder];
       deleteSession(group.folder);
+      if (oldSessionId) deleteSessionTranscript(group.folder, oldSessionId);
       return runAgent(group, prompt, chatJid, onOutput, true);
     }
 
