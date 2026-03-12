@@ -19,10 +19,6 @@ import path from 'path';
 import { query, HookCallback, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 import {
-  shouldEnableAnthropicOpenAiProxy,
-  startAnthropicOpenAiProxy,
-} from './anthropic-openai-proxy.js';
-import {
   extractAssistantText,
   isPlaceholderResult,
   type AssistantMessagePayload,
@@ -591,10 +587,6 @@ async function main(): Promise<void> {
       error: errorMessage
     });
     process.exit(1);
-  } finally {
-    if (proxyHandle) {
-      await proxyHandle.close().catch(() => {});
-    }
   }
 }
 
