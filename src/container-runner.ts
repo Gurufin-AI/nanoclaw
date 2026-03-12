@@ -15,6 +15,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
+  X_AUTH_TOKEN,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -249,6 +250,11 @@ function buildContainerArgs(
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Pass X auth token so skills can inject it as a cookie (no X API key needed)
+  if (X_AUTH_TOKEN) {
+    args.push('-e', `X_AUTH_TOKEN=${X_AUTH_TOKEN}`);
+  }
 
   // Route API traffic through the credential proxy (containers never see real secrets)
   args.push(
