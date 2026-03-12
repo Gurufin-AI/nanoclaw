@@ -15,6 +15,7 @@ const envConfig = readEnvFile([
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'TZ',
+  'X_AUTH_TOKEN',
 ]);
 
 export const ASSISTANT_NAME =
@@ -99,3 +100,7 @@ export const ANTHROPIC_DEFAULT_MODEL =
   process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
   envConfig.ANTHROPIC_DEFAULT_SONNET_MODEL ||
   '';
+
+// X (Twitter) auth token for cookie injection (no API key required)
+export const X_AUTH_TOKEN =
+  process.env.X_AUTH_TOKEN || envConfig.X_AUTH_TOKEN || '';
