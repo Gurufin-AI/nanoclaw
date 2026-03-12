@@ -12,14 +12,15 @@ import {
   getTaskById,
   updateTask,
 } from './db.js';
-import { isValidGroupFolder } from './group-folder.js';
+import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
-import { RegisteredGroup } from './types.js';
+import { OutboundFile, RegisteredGroup } from './types.js';
 // @ts-ignore - skill file outside rootDir, valid at runtime
 import { handleXIpc } from '../.claude/skills/x-integration/host.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  sendFile: (jid: string, file: OutboundFile) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -46,6 +47,35 @@ export interface IpcDeps {
 }
 
 let ipcWatcherRunning = false;
+
+export function resolveOutboundContainerPath(
+  sourceGroup: string,
+  containerPath: string,
+): string | null {
+  if (!containerPath) return null;
+
+  const normalized = path.posix.normalize(containerPath);
+  if (
+    normalized !== '/workspace/group' &&
+    !normalized.startsWith('/workspace/group/')
+  ) {
+    return null;
+  }
+
+  const relative = path.posix.relative('/workspace/group', normalized);
+  if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
+    return null;
+  }
+
+  const groupDir = resolveGroupFolderPath(sourceGroup);
+  const hostPath = path.resolve(groupDir, ...relative.split('/'));
+  const hostRelative = path.relative(groupDir, hostPath);
+  if (hostRelative.startsWith('..') || path.isAbsolute(hostRelative)) {
+    return null;
+  }
+
+  return hostPath;
+}
 
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
@@ -110,6 +140,42 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC message attempt blocked',
+                  );
+                }
+              } else if (data.type === 'file' && data.chatJid && data.filePath) {
+                const targetGroup = registeredGroups[data.chatJid];
+                if (
+                  isMain ||
+                  (targetGroup && targetGroup.folder === sourceGroup)
+                ) {
+                  const hostPath = resolveOutboundContainerPath(
+                    sourceGroup,
+                    data.filePath,
+                  );
+                  if (!hostPath) {
+                    logger.warn(
+                      {
+                        chatJid: data.chatJid,
+                        sourceGroup,
+                        filePath: data.filePath,
+                      },
+                      'Rejected outbound file IPC path',
+                    );
+                  } else {
+                    await deps.sendFile(data.chatJid, {
+                      path: hostPath,
+                      caption: data.caption,
+                      fileName: data.fileName,
+                    });
+                    logger.info(
+                      { chatJid: data.chatJid, sourceGroup, filePath: hostPath },
+                      'IPC file sent',
+                    );
+                  }
+                } else {
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC file attempt blocked',
                   );
                 }
               }

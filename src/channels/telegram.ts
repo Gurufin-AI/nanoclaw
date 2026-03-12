@@ -1,6 +1,7 @@
 import https from 'https';
+import fs from 'fs';
 import path from 'path';
-import { Bot } from 'grammy';
+import { Bot, InputFile } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { resolveGroupFolderPath } from '../group-folder.js';
@@ -8,6 +9,7 @@ import { logger } from '../logger.js';
 import { saveMedia } from '../media.js';
 import {
   Channel,
+  OutboundFile,
   OnChatMetadata,
   OnInboundMessage,
   RegisteredGroup,
@@ -40,7 +42,10 @@ export class TelegramChannel implements Channel {
   private shuttingDown = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private connectPromise: Promise<void> | null = null;
-  private outgoingQueue: Array<{ jid: string; text: string }> = [];
+  private outgoingQueue: Array<
+    | { type: 'message'; jid: string; text: string }
+    | { type: 'file'; jid: string; file: OutboundFile }
+  > = [];
   private flushing = false;
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
@@ -397,7 +402,7 @@ export class TelegramChannel implements Channel {
 
   async sendMessage(jid: string, text: string): Promise<void> {
     if (!this.bot || !this.connected) {
-      this.outgoingQueue.push({ jid, text });
+      this.outgoingQueue.push({ type: 'message', jid, text });
       logger.info(
         { jid, length: text.length, queueSize: this.outgoingQueue.length },
         'Telegram disconnected, message queued',
@@ -432,12 +437,73 @@ export class TelegramChannel implements Channel {
               setTimeout(resolve, SEND_RETRY_DELAY_MS),
             );
           } else {
-            this.outgoingQueue.push({ jid, text: chunk });
+            this.outgoingQueue.push({ type: 'message', jid, text: chunk });
             logger.error(
               { jid, err, queueSize: this.outgoingQueue.length },
               'Failed to send Telegram message, queued for retry',
             );
           }
+        }
+      }
+    }
+  }
+
+  async sendFile(jid: string, file: OutboundFile): Promise<void> {
+    if (!this.bot || !this.connected) {
+      this.outgoingQueue.push({ type: 'file', jid, file });
+      logger.info(
+        {
+          jid,
+          path: file.path,
+          captionLength: file.caption?.length ?? 0,
+          queueSize: this.outgoingQueue.length,
+        },
+        'Telegram disconnected, file queued',
+      );
+      return;
+    }
+
+    await fs.promises.access(file.path, fs.constants.R_OK);
+
+    const numericId = jid.replace(/^tg:/, '');
+    const fileName = file.fileName || path.basename(file.path);
+    const inputFile = new InputFile(file.path, fileName);
+
+    let retries = SEND_RETRY_COUNT;
+    while (retries > 0) {
+      try {
+        await this.bot.api.sendDocument(
+          numericId,
+          inputFile,
+          file.caption ? { caption: file.caption } : {},
+        );
+        logger.info(
+          { jid, path: file.path, fileName },
+          'Telegram file sent',
+        );
+        return;
+      } catch (err) {
+        retries--;
+        if (retries > 0) {
+          logger.warn(
+            {
+              jid,
+              path: file.path,
+              err: (err as Error).message,
+              retriesLeft: retries,
+            },
+            'Failed to send Telegram file, retrying...',
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, SEND_RETRY_DELAY_MS),
+          );
+        } else {
+          this.outgoingQueue.push({ type: 'file', jid, file });
+          logger.error(
+            { jid, path: file.path, err, queueSize: this.outgoingQueue.length },
+            'Failed to send Telegram file, queued for retry',
+          );
+          return;
         }
       }
     }
@@ -586,7 +652,11 @@ export class TelegramChannel implements Channel {
       );
       while (this.outgoingQueue.length > 0 && this.connected && this.bot) {
         const item = this.outgoingQueue.shift()!;
-        await this.sendMessage(item.jid, item.text);
+        if (item.type === 'message') {
+          await this.sendMessage(item.jid, item.text);
+        } else {
+          await this.sendFile(item.jid, item.file);
+        }
       }
     } finally {
       this.flushing = false;

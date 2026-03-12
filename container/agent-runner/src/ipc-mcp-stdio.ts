@@ -65,6 +65,78 @@ server.tool(
 );
 
 server.tool(
+  'send_file',
+  'Send a file attachment to the current chat. Only files inside the mounted group workspace can be sent.',
+  {
+    file_path: z
+      .string()
+      .describe(
+        'Path to the file inside the container. Relative paths are resolved from /workspace/group.',
+      ),
+    caption: z.string().optional().describe('Optional caption to send with the file'),
+    file_name: z
+      .string()
+      .optional()
+      .describe('Optional filename to display in Telegram'),
+  },
+  async (args) => {
+    const resolvedPath = path.posix.normalize(
+      path.posix.isAbsolute(args.file_path)
+        ? args.file_path
+        : path.posix.join('/workspace/group', args.file_path),
+    );
+
+    if (
+      resolvedPath === '/workspace/group' ||
+      !resolvedPath.startsWith('/workspace/group/')
+    ) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Only files inside /workspace/group can be sent.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    try {
+      const stat = fs.statSync(resolvedPath);
+      if (!stat.isFile()) {
+        return {
+          content: [
+            { type: 'text' as const, text: `Not a file: ${resolvedPath}` },
+          ],
+          isError: true,
+        };
+      }
+    } catch {
+      return {
+        content: [
+          { type: 'text' as const, text: `File not found: ${resolvedPath}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const data: Record<string, string | undefined> = {
+      type: 'file',
+      chatJid,
+      filePath: resolvedPath,
+      caption: args.caption || undefined,
+      fileName: args.file_name || undefined,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(MESSAGES_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: 'File sent.' }] };
+  },
+);
+
+server.tool(
   'schedule_task',
   `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
 

@@ -41,6 +41,15 @@ vi.mock('../group-folder.js', () => ({
   ),
 }));
 
+vi.mock('fs', () => ({
+  default: {
+    constants: { R_OK: 4 },
+    promises: {
+      access: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}));
+
 vi.mock('https', () => ({
   default: {
     Agent: class MockAgent {},
@@ -87,6 +96,15 @@ vi.mock('https', () => ({
 type Handler = (...args: any[]) => any;
 
 vi.mock('grammy', () => ({
+  InputFile: class MockInputFile {
+    path: string;
+    filename?: string;
+
+    constructor(path: string, filename?: string) {
+      this.path = path;
+      this.filename = filename;
+    }
+  },
   Bot: class MockBot {
     token: string;
     commandHandlers = new Map<string, Handler>();
@@ -95,6 +113,7 @@ vi.mock('grammy', () => ({
 
     api = {
       sendMessage: vi.fn().mockResolvedValue(undefined),
+      sendDocument: vi.fn().mockResolvedValue(undefined),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -907,6 +926,69 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         'Queued first',
+      );
+    });
+  });
+
+  describe('sendFile', () => {
+    it('sends a document via bot API', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendFile?.('tg:100200300', {
+        path: '/tmp/groups/test-group/report.pdf',
+        caption: 'Latest report',
+      });
+
+      expect(currentBot().api.sendDocument).toHaveBeenCalledWith(
+        '100200300',
+        expect.objectContaining({
+          path: '/tmp/groups/test-group/report.pdf',
+          filename: 'report.pdf',
+        }),
+        { caption: 'Latest report' },
+      );
+    });
+
+    it('uses the provided outbound file name', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendFile?.('tg:100200300', {
+        path: '/tmp/groups/test-group/report.pdf',
+        fileName: 'weekly-summary.pdf',
+      });
+
+      expect(currentBot().api.sendDocument).toHaveBeenCalledWith(
+        '100200300',
+        expect.objectContaining({
+          path: '/tmp/groups/test-group/report.pdf',
+          filename: 'weekly-summary.pdf',
+        }),
+        {},
+      );
+    });
+
+    it('queues files sent before connect and flushes on connect', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+
+      await channel.sendFile?.('tg:100200300', {
+        path: '/tmp/groups/test-group/report.pdf',
+      });
+      expect(channel.isConnected()).toBe(false);
+
+      await channel.connect();
+
+      expect(currentBot().api.sendDocument).toHaveBeenCalledWith(
+        '100200300',
+        expect.objectContaining({
+          path: '/tmp/groups/test-group/report.pdf',
+          filename: 'report.pdf',
+        }),
+        {},
       );
     });
   });
