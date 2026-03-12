@@ -63,7 +63,11 @@ export function resolveOutboundContainerPath(
   }
 
   const relative = path.posix.relative('/workspace/group', normalized);
-  if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
+  if (
+    !relative ||
+    relative.startsWith('..') ||
+    path.posix.isAbsolute(relative)
+  ) {
     return null;
   }
 
@@ -142,7 +146,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     'Unauthorized IPC message attempt blocked',
                   );
                 }
-              } else if (data.type === 'file' && data.chatJid && data.filePath) {
+              } else if (
+                data.type === 'file' &&
+                data.chatJid &&
+                data.filePath
+              ) {
                 const targetGroup = registeredGroups[data.chatJid];
                 if (
                   isMain ||
@@ -168,7 +176,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       fileName: data.fileName,
                     });
                     logger.info(
-                      { chatJid: data.chatJid, sourceGroup, filePath: hostPath },
+                      {
+                        chatJid: data.chatJid,
+                        sourceGroup,
+                        filePath: hostPath,
+                      },
                       'IPC file sent',
                     );
                   }

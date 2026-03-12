@@ -477,10 +477,7 @@ export class TelegramChannel implements Channel {
           inputFile,
           file.caption ? { caption: file.caption } : {},
         );
-        logger.info(
-          { jid, path: file.path, fileName },
-          'Telegram file sent',
-        );
+        logger.info({ jid, path: file.path, fileName }, 'Telegram file sent');
         return;
       } catch (err) {
         retries--;

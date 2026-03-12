@@ -15,7 +15,10 @@ describe('resolveOutboundContainerPath', () => {
 
   it('rejects paths outside the group workspace mount', () => {
     expect(
-      resolveOutboundContainerPath('telegram_main', '/workspace/project/README.md'),
+      resolveOutboundContainerPath(
+        'telegram_main',
+        '/workspace/project/README.md',
+      ),
     ).toBeNull();
   });
 
