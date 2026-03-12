@@ -91,14 +91,17 @@ describe('formatMessages', () => {
   });
 
   it('includes structured attachment metadata when present', () => {
-    const result = formatMessages([
-      makeMsg({
-        content: '[Document received]\nfile: /tmp/report.pdf',
-        media_kind: 'document',
-        media_name: 'report.pdf',
-        media_file: '/tmp/groups/test-group/media/report.pdf',
-      }),
-    ], TZ);
+    const result = formatMessages(
+      [
+        makeMsg({
+          content: '[Document received]\nfile: /tmp/report.pdf',
+          media_kind: 'document',
+          media_name: 'report.pdf',
+          media_file: '/tmp/groups/test-group/media/report.pdf',
+        }),
+      ],
+      TZ,
+    );
 
     expect(result).toContain('media_kind="document"');
     expect(result).toContain('media_name="report.pdf"');
