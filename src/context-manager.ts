@@ -18,7 +18,9 @@ export type OverflowKind =
  * Classify what kind of overflow a raw container result string represents.
  * Returns 'none' when the result is healthy.
  */
-export function classifyOverflow(result: string | null | undefined): OverflowKind {
+export function classifyOverflow(
+  result: string | null | undefined,
+): OverflowKind {
   if (!result) return 'none';
   if (result.includes('exceed_context_size_error')) return 'session_too_large';
   if (result === 'Prompt is too long') return 'input_too_large';
@@ -139,7 +141,10 @@ export async function gracefulReset(
       '⚠️ Your message is too long for the model context window. ' +
         'Please send a shorter prompt.',
     );
-    logger.warn({ groupFolder }, 'Input too large — user notified, no session reset');
+    logger.warn(
+      { groupFolder },
+      'Input too large — user notified, no session reset',
+    );
     return 'no_retry';
   }
 

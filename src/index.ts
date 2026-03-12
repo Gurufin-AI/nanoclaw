@@ -752,8 +752,7 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
-    writeTasksSnapshot: (gf, im, tasks) =>
-      writeTasksSnapshot(gf, im, tasks),
+    writeTasksSnapshot: (gf, im, tasks) => writeTasksSnapshot(gf, im, tasks),
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
