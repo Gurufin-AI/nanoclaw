@@ -37,7 +37,9 @@ vi.mock('./container-runtime.js', () => ({
     '-v',
     `${hostPath}:${containerPath}:ro`,
   ]),
-  stopContainer: vi.fn((containerName: string) => `docker stop ${containerName}`),
+  stopContainer: vi.fn(
+    (containerName: string) => `docker stop ${containerName}`,
+  ),
 }));
 
 // Mock fs
