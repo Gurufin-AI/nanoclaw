@@ -7,6 +7,12 @@ export interface AssistantMessagePayload {
   content?: string | AssistantContentBlock[];
 }
 
+export interface SDKResultPayload {
+  subtype?: string;
+  result?: string | null;
+  errors?: string[];
+}
+
 const CONTROL_OR_FORMAT_CHARS =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\p{Cf}]/gu;
 const VISIBLE_TEXT_CHARS = /[^\s]/u;
@@ -48,4 +54,30 @@ export function isPlaceholderResult(text: string | null | undefined): boolean {
   if (!text) return false;
   const trimmed = text.trim();
   return /^\([^)]+\)$/.test(trimmed);
+}
+
+export function isSdkErrorResult(message: SDKResultPayload): boolean {
+  return typeof message.subtype === 'string' && message.subtype.startsWith('error_');
+}
+
+export function summarizeSdkError(message: SDKResultPayload): string | null {
+  const firstError = message.errors?.find(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+  );
+  if (firstError) {
+    const summary = firstError
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    if (summary) return summary;
+  }
+
+  if (typeof message.result === 'string') {
+    const normalized = normalizeAssistantText(message.result);
+    if (normalized) return normalized;
+  }
+
+  return typeof message.subtype === 'string'
+    ? `Agent SDK reported ${message.subtype}`
+    : null;
 }

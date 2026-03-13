@@ -16,6 +16,7 @@ vi.mock('./config.js', () => ({
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',
   IDLE_TIMEOUT: 1800000, // 30min
   TIMEZONE: 'America/Los_Angeles',
+  X_AUTH_TOKEN: '',
 }));
 
 // Mock logger
@@ -26,6 +27,17 @@ vi.mock('./logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+vi.mock('./container-runtime.js', () => ({
+  CONTAINER_HOST_GATEWAY: '127.0.0.1',
+  CONTAINER_RUNTIME_BIN: 'docker',
+  hostGatewayArgs: vi.fn(() => []),
+  readonlyMountArgs: vi.fn((hostPath: string, containerPath: string) => [
+    '-v',
+    `${hostPath}:${containerPath}:ro`,
+  ]),
+  stopContainer: vi.fn((containerName: string) => `docker stop ${containerName}`),
 }));
 
 // Mock fs
@@ -208,5 +220,37 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+
+  it('normal exit after streamed error resolves as error', async () => {
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'error',
+      result: null,
+      error: 'AxiosError: Request failed with status code 401',
+      newSessionId: 'session-789',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('401');
+    expect(result.newSessionId).toBe('session-789');
+    expect(onOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'error',
+        error: 'AxiosError: Request failed with status code 401',
+      }),
+    );
   });
 });

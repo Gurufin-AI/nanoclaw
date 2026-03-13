@@ -22,6 +22,9 @@ import {
   extractAssistantText,
   isPlaceholderResult,
   type AssistantMessagePayload,
+  isSdkErrorResult,
+  type SDKResultPayload,
+  summarizeSdkError,
 } from './output.js';
 
 interface ContainerInput {
@@ -343,7 +346,12 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
+): Promise<{
+  newSessionId?: string;
+  lastAssistantUuid?: string;
+  closedDuringQuery: boolean;
+  fatalError: boolean;
+}> {
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -373,6 +381,7 @@ async function runQuery(
   let lastAssistantText: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let fatalError = false;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -479,12 +488,23 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
-      const textResult =
-        'result' in message ? (message as { result?: string }).result : null;
+      const sdkResult = message as SDKResultPayload;
+      const textResult = 'result' in sdkResult ? sdkResult.result ?? null : null;
       const outboundText = lastAssistantText
         || (isPlaceholderResult(textResult) ? null : textResult)
         || null;
       log(`Result #${resultCount}: subtype=${message.subtype} RAW=${JSON.stringify(message)}`);
+      if (isSdkErrorResult(sdkResult)) {
+        fatalError = true;
+        writeOutput({
+          status: 'error',
+          result: outboundText,
+          newSessionId,
+          error: summarizeSdkError(sdkResult) || 'Agent SDK execution failed',
+        });
+        lastAssistantText = undefined;
+        continue;
+      }
       writeOutput({
         status: 'success',
         result: outboundText || (isPlaceholderResult(textResult) ? PLACEHOLDER_OUTPUT_RESULT : null),
@@ -496,7 +516,7 @@ async function runQuery(
 
   ipcPolling = false;
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
-  return { newSessionId, lastAssistantUuid, closedDuringQuery };
+  return { newSessionId, lastAssistantUuid, closedDuringQuery, fatalError };
 }
 
 async function main(): Promise<void> {
@@ -560,6 +580,11 @@ async function main(): Promise<void> {
       if (queryResult.closedDuringQuery) {
         log('Close sentinel consumed during query, exiting');
         break;
+      }
+
+      if (queryResult.fatalError) {
+        log('Fatal SDK error reported during query, exiting');
+        process.exit(1);
       }
 
       // Emit session update so host can track it

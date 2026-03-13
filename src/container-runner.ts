@@ -360,6 +360,7 @@ export async function runContainerAgent(
     let parseBuffer = '';
     let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
+    let lastStreamedOutput: ContainerOutput | undefined;
 
     container.stdout.on('data', (data) => {
       const chunk = data.toString();
@@ -394,6 +395,7 @@ export async function runContainerAgent(
 
           try {
             const parsed: ContainerOutput = JSON.parse(jsonStr);
+            lastStreamedOutput = parsed;
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
             }
@@ -600,6 +602,25 @@ export async function runContainerAgent(
       // Streaming mode: wait for output chain to settle, return completion marker
       if (onOutput) {
         outputChain.then(() => {
+          if (lastStreamedOutput?.status === 'error') {
+            logger.error(
+              {
+                group: group.name,
+                duration,
+                newSessionId,
+                error: lastStreamedOutput.error,
+              },
+              'Container completed after streamed error',
+            );
+            resolve({
+              status: 'error',
+              result: lastStreamedOutput.result,
+              newSessionId,
+              error: lastStreamedOutput.error,
+            });
+            return;
+          }
+
           logger.info(
             { group: group.name, duration, newSessionId },
             'Container completed (streaming mode)',

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractAssistantText, normalizeAssistantText } from './output.js';
+import {
+  extractAssistantText,
+  isSdkErrorResult,
+  normalizeAssistantText,
+  summarizeSdkError,
+} from './output.js';
 
 describe('agent-runner output extraction', () => {
   it('drops control-only assistant text', () => {
@@ -33,5 +38,22 @@ describe('agent-runner output extraction', () => {
         },
       }),
     ).toBe('Actual reply');
+  });
+
+  it('classifies SDK error result subtypes', () => {
+    expect(isSdkErrorResult({ subtype: 'error_during_execution' })).toBe(true);
+    expect(isSdkErrorResult({ subtype: 'success' })).toBe(false);
+  });
+
+  it('summarizes SDK errors from the first error line', () => {
+    expect(
+      summarizeSdkError({
+        subtype: 'error_during_execution',
+        errors: [
+          'AxiosError: Request failed with status code 401\n    at stack frame',
+          'TypeError: secondary failure',
+        ],
+      }),
+    ).toBe('AxiosError: Request failed with status code 401');
   });
 });
