@@ -281,7 +281,9 @@ describe('container-runner timeout behavior', () => {
 
     expect(envArgs).toContain('ANTHROPIC_API_KEY=');
     expect(envArgs).toContain('ANTHROPIC_AUTH_TOKEN=placeholder');
-    expect(envArgs).toContain('NANOCLAW_UPSTREAM_BASE_URL=https://openrouter.ai/api');
+    expect(envArgs).toContain(
+      'NANOCLAW_UPSTREAM_BASE_URL=https://openrouter.ai/api',
+    );
     expect(envArgs).not.toContain('ANTHROPIC_API_KEY=placeholder');
 
     emitOutputMarker(fakeProc, {
