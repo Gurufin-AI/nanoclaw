@@ -11,7 +11,7 @@ vi.mock('./logger.js', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
-import { startCredentialProxy } from './credential-proxy.js';
+import { detectAuthMode, startCredentialProxy } from './credential-proxy.js';
 
 function makeRequest(
   port: number,
@@ -49,12 +49,15 @@ describe('credential-proxy', () => {
   let proxyPort: number;
   let upstreamPort: number;
   let lastUpstreamHeaders: http.IncomingHttpHeaders;
+  let lastUpstreamUrl: string;
 
   beforeEach(async () => {
     lastUpstreamHeaders = {};
+    lastUpstreamUrl = '';
 
     upstreamServer = http.createServer((req, res) => {
       lastUpstreamHeaders = { ...req.headers };
+      lastUpstreamUrl = req.url || '';
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     });
@@ -71,9 +74,10 @@ describe('credential-proxy', () => {
   });
 
   async function startProxy(env: Record<string, string>): Promise<number> {
-    Object.assign(mockEnv, env, {
-      ANTHROPIC_BASE_URL: `http://127.0.0.1:${upstreamPort}`,
-    });
+    Object.assign(mockEnv, env);
+    if (!mockEnv.ANTHROPIC_BASE_URL) {
+      mockEnv.ANTHROPIC_BASE_URL = `http://127.0.0.1:${upstreamPort}`;
+    }
     proxyServer = await startCredentialProxy(0);
     return (proxyServer.address() as AddressInfo).port;
   }
@@ -143,6 +147,38 @@ describe('credential-proxy', () => {
     expect(lastUpstreamHeaders['authorization']).toBeUndefined();
   });
 
+  it('detects ANTHROPIC_AUTH_TOKEN as auth-token mode for OpenRouter-style auth', () => {
+    Object.assign(mockEnv, {
+      ANTHROPIC_AUTH_TOKEN: 'openrouter-token',
+    });
+
+    expect(detectAuthMode()).toBe('auth-token');
+  });
+
+  it('injects ANTHROPIC_AUTH_TOKEN as bearer auth for OpenRouter-style auth', async () => {
+    proxyPort = await startProxy({
+      ANTHROPIC_AUTH_TOKEN: 'openrouter-token',
+    });
+
+    await makeRequest(
+      proxyPort,
+      {
+        method: 'POST',
+        path: '/v1/messages',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer placeholder',
+        },
+      },
+      '{}',
+    );
+
+    expect(lastUpstreamHeaders['authorization']).toBe(
+      'Bearer openrouter-token',
+    );
+    expect(lastUpstreamHeaders['x-api-key']).toBeUndefined();
+  });
+
   it('strips hop-by-hop headers', async () => {
     proxyPort = await startProxy({ ANTHROPIC_API_KEY: 'sk-ant-real-key' });
 
@@ -166,6 +202,28 @@ describe('credential-proxy', () => {
     // custom keep-alive and transfer-encoding must not be forwarded.
     expect(lastUpstreamHeaders['keep-alive']).toBeUndefined();
     expect(lastUpstreamHeaders['transfer-encoding']).toBeUndefined();
+  });
+
+  it('preserves the upstream base path for OpenRouter-style URLs', async () => {
+    proxyPort = await startProxy({
+      ANTHROPIC_AUTH_TOKEN: 'openrouter-token',
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${upstreamPort}/api`,
+    });
+
+    await makeRequest(
+      proxyPort,
+      {
+        method: 'POST',
+        path: '/v1/chat/completions?foo=bar',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer placeholder',
+        },
+      },
+      '{}',
+    );
+
+    expect(lastUpstreamUrl).toBe('/api/v1/chat/completions?foo=bar');
   });
 
   it('returns 502 when upstream is unreachable', async () => {

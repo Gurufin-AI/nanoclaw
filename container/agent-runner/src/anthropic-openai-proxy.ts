@@ -366,6 +366,18 @@ export function shouldEnableAnthropicOpenAiProxy(
 ): boolean {
   if (!upstreamBaseUrl) return false;
   if (process.env.NANOCLAW_DISABLE_OPENAI_CHAT_PROXY === '1') return false;
+  const hostname = (() => {
+    try {
+      return new URL(upstreamBaseUrl).hostname;
+    } catch {
+      return '';
+    }
+  })();
+
+  if (hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')) {
+    return false;
+  }
+
   return !upstreamBaseUrl.includes('api.anthropic.com');
 }
 

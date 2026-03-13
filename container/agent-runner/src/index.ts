@@ -26,6 +26,10 @@ import {
   type SDKResultPayload,
   summarizeSdkError,
 } from './output.js';
+import {
+  shouldEnableAnthropicOpenAiProxy,
+  startAnthropicOpenAiProxy,
+} from './anthropic-openai-proxy.js';
 
 interface ContainerInput {
   prompt: string;
@@ -539,6 +543,21 @@ async function main(): Promise<void> {
   // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
   // No real secrets exist in the container environment.
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
+  let openAiCompatProxy:
+    | { baseUrl: string; close: () => Promise<void> }
+    | undefined;
+
+  const upstreamBaseUrl = sdkEnv['ANTHROPIC_BASE_URL'];
+  const realUpstreamBaseUrl =
+    sdkEnv['NANOCLAW_UPSTREAM_BASE_URL'] || upstreamBaseUrl;
+  if (shouldEnableAnthropicOpenAiProxy(realUpstreamBaseUrl)) {
+    log(
+      `Starting Anthropic->OpenAI compatibility proxy for ${realUpstreamBaseUrl}`,
+    );
+    openAiCompatProxy = await startAnthropicOpenAiProxy(upstreamBaseUrl!);
+    sdkEnv['ANTHROPIC_BASE_URL'] = openAiCompatProxy.baseUrl;
+    log(`Compatibility proxy listening at ${openAiCompatProxy.baseUrl}`);
+  }
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
@@ -612,6 +631,18 @@ async function main(): Promise<void> {
       error: errorMessage
     });
     process.exit(1);
+  } finally {
+    if (openAiCompatProxy) {
+      try {
+        await openAiCompatProxy.close();
+      } catch (err) {
+        log(
+          `Failed to close compatibility proxy: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
   }
 }
 

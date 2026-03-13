@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  ANTHROPIC_BASE_URL,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -261,14 +262,22 @@ function buildContainerArgs(
     '-e',
     `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
   );
+  if (ANTHROPIC_BASE_URL) {
+    args.push('-e', `NANOCLAW_UPSTREAM_BASE_URL=${ANTHROPIC_BASE_URL}`);
+  }
 
   // Mirror the host's auth method with a placeholder value.
   // API key mode: SDK sends x-api-key, proxy replaces with real key.
+  // Auth token mode: SDK sends Authorization: Bearer, proxy replaces with the
+  // real token. ANTHROPIC_API_KEY must stay explicitly empty for OpenRouter.
   // OAuth mode:   SDK exchanges placeholder token for temp API key,
   //               proxy injects real OAuth token on that exchange request.
   const authMode = detectAuthMode();
   if (authMode === 'api-key') {
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  } else if (authMode === 'auth-token') {
+    args.push('-e', 'ANTHROPIC_API_KEY=');
+    args.push('-e', 'ANTHROPIC_AUTH_TOKEN=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }

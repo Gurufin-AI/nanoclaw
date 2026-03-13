@@ -17,10 +17,67 @@ import { request as httpRequest, RequestOptions } from 'http';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
-export type AuthMode = 'api-key' | 'oauth';
+export type AuthMode = 'api-key' | 'auth-token' | 'oauth';
 
 export interface ProxyConfig {
   authMode: AuthMode;
+}
+
+interface AnthropicMessageUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
+function resolveUpstreamPath(
+  upstreamUrl: URL,
+  requestUrl: string | undefined,
+): string {
+  const normalizedBase = upstreamUrl.href.endsWith('/')
+    ? upstreamUrl.href
+    : `${upstreamUrl.href}/`;
+  const resolved = new URL(
+    (requestUrl || '/').replace(/^\//, ''),
+    normalizedBase,
+  );
+  return `${resolved.pathname}${resolved.search}`;
+}
+
+function normalizeAnthropicMessageResponse(
+  requestUrl: string | undefined,
+  responseBody: Buffer,
+  logMissingUsage: (body: string) => void,
+): Buffer {
+  if (!(requestUrl || '').startsWith('/v1/messages')) {
+    return responseBody;
+  }
+
+  try {
+    const parsed = JSON.parse(responseBody.toString('utf8')) as {
+      usage?: AnthropicMessageUsage;
+    };
+
+    if (
+      !parsed.usage ||
+      typeof parsed.usage.input_tokens !== 'number' ||
+      typeof parsed.usage.output_tokens !== 'number'
+    ) {
+      logMissingUsage(responseBody.toString('utf8').slice(0, 2000));
+    }
+
+    parsed.usage = {
+      input_tokens: parsed.usage?.input_tokens ?? 0,
+      output_tokens: parsed.usage?.output_tokens ?? 0,
+      cache_creation_input_tokens:
+        parsed.usage?.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: parsed.usage?.cache_read_input_tokens ?? 0,
+    };
+
+    return Buffer.from(JSON.stringify(parsed));
+  } catch {
+    return responseBody;
+  }
 }
 
 export function startCredentialProxy(
@@ -34,7 +91,11 @@ export function startCredentialProxy(
     'ANTHROPIC_BASE_URL',
   ]);
 
-  const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const authMode: AuthMode = secrets.ANTHROPIC_API_KEY
+    ? 'api-key'
+    : secrets.ANTHROPIC_AUTH_TOKEN
+      ? 'auth-token'
+      : 'oauth';
   const oauthToken =
     secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
 
@@ -63,9 +124,15 @@ export function startCredentialProxy(
         delete headers['transfer-encoding'];
 
         if (authMode === 'api-key') {
-          // API key mode: inject x-api-key on every request
+          // Native Anthropic API key: inject x-api-key on every request.
           delete headers['x-api-key'];
+          delete headers['authorization'];
           headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
+        } else if (authMode === 'auth-token') {
+          // OpenRouter-style auth token: preserve the SDK's bearer flow.
+          delete headers['x-api-key'];
+          delete headers['authorization'];
+          headers['authorization'] = `Bearer ${secrets.ANTHROPIC_AUTH_TOKEN}`;
         } else {
           // OAuth mode: replace placeholder Bearer token with the real one
           // only when the container actually sends an Authorization header
@@ -83,13 +150,55 @@ export function startCredentialProxy(
           {
             hostname: upstreamUrl.hostname,
             port: upstreamUrl.port || (isHttps ? 443 : 80),
-            path: req.url,
+            path: resolveUpstreamPath(upstreamUrl, req.url),
             method: req.method,
             headers,
           } as RequestOptions,
           (upRes) => {
-            res.writeHead(upRes.statusCode!, upRes.headers);
-            upRes.pipe(res);
+            const responseChunks: Buffer[] = [];
+            upRes.on('data', (chunk) => {
+              responseChunks.push(
+                Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+              );
+            });
+            upRes.on('end', () => {
+              const rawResponseBody = Buffer.concat(responseChunks);
+              const responseBody =
+                (upRes.statusCode || 500) < 400
+                  ? normalizeAnthropicMessageResponse(
+                      req.url,
+                      rawResponseBody,
+                      (body) =>
+                        logger.warn(
+                          {
+                            method: req.method,
+                            path: req.url,
+                            upstreamPath: resolveUpstreamPath(
+                              upstreamUrl,
+                              req.url,
+                            ),
+                            body,
+                          },
+                          'Credential proxy upstream success response missing Anthropic usage fields',
+                        ),
+                    )
+                  : rawResponseBody;
+              if ((upRes.statusCode || 500) >= 400) {
+                logger.warn(
+                  {
+                    statusCode: upRes.statusCode,
+                    method: req.method,
+                    path: req.url,
+                    upstreamPath: resolveUpstreamPath(upstreamUrl, req.url),
+                    body: responseBody.toString('utf8').slice(0, 2000),
+                  },
+                  'Credential proxy upstream returned error response',
+                );
+              }
+
+              res.writeHead(upRes.statusCode!, upRes.headers);
+              res.end(responseBody);
+            });
           },
         );
 
@@ -120,6 +229,19 @@ export function startCredentialProxy(
 
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
-  const secrets = readEnvFile(['ANTHROPIC_API_KEY']);
-  return secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const secrets = readEnvFile([
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+  ]);
+
+  if (secrets.ANTHROPIC_API_KEY) {
+    return 'api-key';
+  }
+
+  if (secrets.ANTHROPIC_AUTH_TOKEN) {
+    return 'auth-token';
+  }
+
+  return 'oauth';
 }

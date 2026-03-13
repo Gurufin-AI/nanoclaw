@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   anthropicRequestToOpenAiChat,
   openAiResponseToAnthropic,
+  shouldEnableAnthropicOpenAiProxy,
 } from './anthropic-openai-proxy.js';
 
 describe('anthropic-openai proxy conversion', () => {
@@ -135,5 +136,17 @@ describe('anthropic-openai proxy conversion', () => {
         },
       ],
     });
+  });
+
+  it('enables the compatibility proxy for non-Anthropic upstreams', () => {
+    expect(
+      shouldEnableAnthropicOpenAiProxy('https://openrouter.ai/api'),
+    ).toBe(false);
+    expect(
+      shouldEnableAnthropicOpenAiProxy('https://api.anthropic.com'),
+    ).toBe(false);
+    expect(
+      shouldEnableAnthropicOpenAiProxy('http://127.0.0.1:8080'),
+    ).toBe(true);
   });
 });
