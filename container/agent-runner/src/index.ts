@@ -382,7 +382,8 @@ async function runQuery(
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
-  let lastAssistantText: string | undefined;
+  // Collect assistant text chunks in emission order; assembled at result time
+  const assistantChunks: { seq: number; text: string }[] = [];
   let messageCount = 0;
   let resultCount = 0;
   let fatalError = false;
@@ -418,10 +419,14 @@ async function runQuery(
     ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n${attachmentInstruction}\n\n${globalClaudeMd}` }
     : { type: 'preset' as const, preset: 'claude_code' as const, append: `${channelInfo}\n${toneInstruction}\n${attachmentInstruction}` };
 
-  // Get the model from environment, default to sonnet if not specified
+  // Get model overrides from environment
   const modelId = sdkEnv['ANTHROPIC_DEFAULT_SONNET_MODEL'];
+  const haikuModelId = sdkEnv['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
   if (modelId) {
-    log(`Bypassing SDK validation to use custom model: ${modelId}`);
+    log(`Bypassing SDK validation to use custom model (sonnet): ${modelId}`);
+  }
+  if (haikuModelId) {
+    log(`Custom haiku model override active: ${haikuModelId}`);
   }
 
   for await (const message of query({
@@ -437,7 +442,9 @@ async function runQuery(
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',
-        'WebSearch', 'WebFetch',
+        // WebSearch is an Anthropic-native tool; exclude it for third-party models
+        ...(modelId ? [] : ['WebSearch']),
+        'WebFetch',
         'Task', 'TaskOutput', 'TaskStop',
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
@@ -476,7 +483,7 @@ async function runQuery(
         message as { message?: AssistantMessagePayload },
       );
       if (assistantText) {
-        lastAssistantText = assistantText;
+        assistantChunks.push({ seq: messageCount, text: assistantText });
       }
     }
 
@@ -494,7 +501,23 @@ async function runQuery(
       resultCount++;
       const sdkResult = message as SDKResultPayload;
       const textResult = 'result' in sdkResult ? sdkResult.result ?? null : null;
-      const outboundText = lastAssistantText
+
+      // Deduplicate: remove any chunk whose text is contained in another chunk.
+      // This handles nemotron's re-emission of the first chunk after the full response.
+      // Then sort by seq DESCENDING — nemotron delivers chunks in reverse logical
+      // order (tail arrives first at lower seq, head arrives later at higher seq),
+      // so highest seq = earliest logical position = must come first in output.
+      const deduped = assistantChunks.filter(
+        ({ text }, i) =>
+          !assistantChunks.some(({ text: other }, j) => j !== i && other.includes(text)),
+      );
+      deduped.sort((a, b) => b.seq - a.seq);
+      const assembledText = deduped.length > 0
+        ? deduped.map((c) => c.text).join('\n').trim() || null
+        : null;
+      log(`Assembled ${assistantChunks.length} chunk(s) → ${deduped.length} after dedup (desc order), text length=${assembledText?.length ?? 0}`);
+
+      const outboundText = assembledText
         || (isPlaceholderResult(textResult) ? null : textResult)
         || null;
       log(`Result #${resultCount}: subtype=${message.subtype} RAW=${JSON.stringify(message)}`);
@@ -506,7 +529,7 @@ async function runQuery(
           newSessionId,
           error: summarizeSdkError(sdkResult) || 'Agent SDK execution failed',
         });
-        lastAssistantText = undefined;
+        assistantChunks.length = 0;
         continue;
       }
       writeOutput({
@@ -514,7 +537,7 @@ async function runQuery(
         result: outboundText || (isPlaceholderResult(textResult) ? PLACEHOLDER_OUTPUT_RESULT : null),
         newSessionId
       });
-      lastAssistantText = undefined;
+      assistantChunks.length = 0;
     }
   }
 

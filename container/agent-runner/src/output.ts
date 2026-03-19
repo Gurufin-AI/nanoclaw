@@ -5,6 +5,7 @@ export interface AssistantContentBlock {
 
 export interface AssistantMessagePayload {
   content?: string | AssistantContentBlock[];
+  stop_reason?: string | null;
 }
 
 export interface SDKResultPayload {

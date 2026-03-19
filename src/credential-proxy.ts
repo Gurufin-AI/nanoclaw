@@ -13,6 +13,7 @@
 import { createServer, Server } from 'http';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
+import { gunzip } from 'zlib';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
@@ -146,11 +147,64 @@ export function startCredentialProxy(
           }
         }
 
+        // Strip Anthropic-specific query params unsupported by third-party providers
+        const isThirdParty = upstreamUrl.hostname !== 'api.anthropic.com';
+        let upstreamPath = resolveUpstreamPath(upstreamUrl, req.url);
+        if (isThirdParty) {
+          const [pathPart, queryPart] = upstreamPath.split('?');
+          if (queryPart) {
+            const filtered = new URLSearchParams(queryPart);
+            filtered.delete('beta');
+            const remaining = filtered.toString();
+            upstreamPath = remaining ? `${pathPart}?${remaining}` : pathPart;
+          }
+        }
+
+        // Mock Anthropic-only endpoints for third-party providers
+        if (isThirdParty && (req.url || '').includes('/v1/messages/count_tokens')) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ input_tokens: 0 }));
+          return;
+        }
+
+        // Strip Anthropic-native tools unsupported by third-party providers;
+        // also log the resolved model for every /v1/messages call.
+        let forwardBody = body;
+        if (
+          isThirdParty &&
+          (req.url || '').includes('/v1/messages') &&
+          req.method === 'POST'
+        ) {
+          try {
+            const parsed = JSON.parse(body.toString('utf8'));
+            if (parsed.model) {
+              logger.info(
+                { model: parsed.model, path: req.url },
+                'Credential proxy forwarding API call',
+              );
+            }
+            if (Array.isArray(parsed.tools)) {
+              const filtered = parsed.tools.filter(
+                (t: { type?: string; name?: string }) =>
+                  t.type !== 'web_search_20250305' &&
+                  !/^web_search/.test(t.name ?? ''),
+              );
+              if (filtered.length !== parsed.tools.length) {
+                parsed.tools = filtered;
+                forwardBody = Buffer.from(JSON.stringify(parsed), 'utf8');
+                headers['content-length'] = forwardBody.length;
+              }
+            }
+          } catch {
+            // not valid JSON — pass through unchanged
+          }
+        }
+
         const upstream = makeRequest(
           {
             hostname: upstreamUrl.hostname,
             port: upstreamUrl.port || (isHttps ? 443 : 80),
-            path: resolveUpstreamPath(upstreamUrl, req.url),
+            path: upstreamPath,
             method: req.method,
             headers,
           } as RequestOptions,
@@ -184,16 +238,25 @@ export function startCredentialProxy(
                     )
                   : rawResponseBody;
               if ((upRes.statusCode || 500) >= 400) {
-                logger.warn(
-                  {
-                    statusCode: upRes.statusCode,
-                    method: req.method,
-                    path: req.url,
-                    upstreamPath: resolveUpstreamPath(upstreamUrl, req.url),
-                    body: responseBody.toString('utf8').slice(0, 2000),
-                  },
-                  'Credential proxy upstream returned error response',
-                );
+                const logError = (bodyText: string) =>
+                  logger.warn(
+                    {
+                      statusCode: upRes.statusCode,
+                      method: req.method,
+                      path: req.url,
+                      upstreamPath,
+                      body: bodyText.slice(0, 2000),
+                    },
+                    'Credential proxy upstream returned error response',
+                  );
+                const encoding = upRes.headers['content-encoding'];
+                if (encoding === 'gzip') {
+                  gunzip(rawResponseBody, (_err, buf) => {
+                    logError(_err ? rawResponseBody.toString('utf8') : buf.toString('utf8'));
+                  });
+                } else {
+                  logError(rawResponseBody.toString('utf8'));
+                }
               }
 
               res.writeHead(upRes.statusCode!, upRes.headers);
@@ -213,7 +276,7 @@ export function startCredentialProxy(
           }
         });
 
-        upstream.write(body);
+        upstream.write(forwardBody);
         upstream.end();
       });
     });

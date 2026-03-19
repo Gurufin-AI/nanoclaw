@@ -100,6 +100,10 @@ export const ANTHROPIC_DEFAULT_MODEL =
   process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
   envConfig.ANTHROPIC_DEFAULT_SONNET_MODEL ||
   '';
+export const ANTHROPIC_DEFAULT_HAIKU_MODEL =
+  process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+  envConfig.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+  '';
 
 // X (Twitter) auth token for cookie injection (no API key required)
 export const X_AUTH_TOKEN =
