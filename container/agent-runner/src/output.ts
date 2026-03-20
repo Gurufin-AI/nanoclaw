@@ -35,10 +35,19 @@ export function extractAssistantText(message: {
   }
   if (!Array.isArray(content)) return null;
 
-  const hasNonTextBlocks = content.some(
-    (block) => block && block.type && block.type !== 'text',
+  // Thinking blocks are OpenRouter/nemotron protocol artifacts — they arrive
+  // as `thinking` (plaintext) and/or `redacted_thinking` (Base64-wrapped)
+  // blocks alongside the actual text. Skip both instead of bailing out.
+  const THINKING_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking']);
+
+  const hasOtherNonTextBlocks = content.some(
+    (block) =>
+      block &&
+      block.type &&
+      block.type !== 'text' &&
+      !THINKING_BLOCK_TYPES.has(block.type),
   );
-  if (hasNonTextBlocks) return null;
+  if (hasOtherNonTextBlocks) return null;
 
   const text = content
     .filter((block) => block?.type === 'text' && typeof block.text === 'string')

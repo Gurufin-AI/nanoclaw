@@ -40,6 +40,58 @@ describe('agent-runner output extraction', () => {
     ).toBe('Actual reply');
   });
 
+  it('extracts text alongside thinking blocks (OpenRouter/nemotron dedup)', () => {
+    expect(
+      extractAssistantText({
+        message: {
+          content: [
+            { type: 'thinking', text: 'Internal reasoning...' },
+            { type: 'text', text: 'The answer is 42.' },
+          ],
+        },
+      }),
+    ).toBe('The answer is 42.');
+  });
+
+  it('extracts text alongside redacted_thinking blocks', () => {
+    expect(
+      extractAssistantText({
+        message: {
+          content: [
+            { type: 'redacted_thinking', text: 'openrouter.reasoning:eyJ0ZXh0...' },
+            { type: 'text', text: 'Here is my response.' },
+          ],
+        },
+      }),
+    ).toBe('Here is my response.');
+  });
+
+  it('returns null for thinking-only messages with no text block', () => {
+    expect(
+      extractAssistantText({
+        message: {
+          content: [
+            { type: 'thinking', text: 'Just thinking...' },
+            { type: 'redacted_thinking', text: 'openrouter.reasoning:eyJ0...' },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it('still returns null for messages containing tool_use blocks', () => {
+    expect(
+      extractAssistantText({
+        message: {
+          content: [
+            { type: 'text', text: 'Calling tool...' },
+            { type: 'tool_use', text: undefined },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+
   it('classifies SDK error result subtypes', () => {
     expect(isSdkErrorResult({ subtype: 'error_during_execution' })).toBe(true);
     expect(isSdkErrorResult({ subtype: 'success' })).toBe(false);
