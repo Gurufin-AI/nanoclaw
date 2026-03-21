@@ -359,7 +359,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
 
-  if (output === 'success' && candidateMessages.length < missedMessages.length) {
+  if (
+    output === 'success' &&
+    candidateMessages.length < missedMessages.length
+  ) {
     const omittedCount = missedMessages.length - candidateMessages.length;
     await channel.sendMessage(
       chatJid,
@@ -508,10 +511,7 @@ async function runAgent(
 
     const finalOverflowKind = classifyOverflow(output.result);
 
-    if (
-      _isRetry &&
-      finalOverflowKind === 'input_too_large'
-    ) {
+    if (_isRetry && finalOverflowKind === 'input_too_large') {
       logger.warn(
         { group: group.name },
         'Input too large persisted after recovery retry',
