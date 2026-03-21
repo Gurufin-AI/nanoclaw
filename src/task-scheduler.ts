@@ -84,6 +84,28 @@ export interface SchedulerDependencies {
   sendMessage: (jid: string, text: string) => Promise<void>;
 }
 
+function resetTaskGroupSession(
+  task: ScheduledTask,
+  sessions: Record<string, string>,
+): boolean {
+  const currentSessionId = sessions[task.group_folder];
+  if (!currentSessionId) return false;
+
+  delete sessions[task.group_folder];
+  deleteSession(task.group_folder);
+  deleteSessionTranscript(task.group_folder, currentSessionId);
+
+  logger.warn(
+    {
+      taskId: task.id,
+      groupFolder: task.group_folder,
+      sessionId: currentSessionId,
+    },
+    'Scheduled task session auto-reset after repeated context overflow',
+  );
+  return true;
+}
+
 async function runTask(
   task: ScheduledTask,
   deps: SchedulerDependencies,
@@ -252,6 +274,21 @@ async function runTask(
     } else if (output.result) {
       // Result was already forwarded to the user via the streaming callback above
       result = output.result;
+    }
+
+    const finalOverflowKind = classifyOverflow(output.result);
+
+    if (_isRetry && finalOverflowKind !== 'none') {
+      const reset = resetTaskGroupSession(task, sessions);
+      if (reset) {
+        await deps
+          .sendMessage(
+            task.chat_jid,
+            '⚠️ Scheduled task context was reset after repeated context overflow. The next run will start with a fresh session.',
+          )
+          .catch(() => {});
+      }
+      return;
     }
 
     // Handle context overflow: one-shot trim-then-reset, then retry once.

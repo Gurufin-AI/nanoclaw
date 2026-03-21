@@ -83,6 +83,53 @@ let messageLoopRunning = false;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
+function getReducedBatchSize(currentSize: number): number {
+  if (currentSize <= 1) return 0;
+  if (currentSize <= 8) return currentSize - 1;
+  return Math.max(1, Math.ceil(currentSize / 2));
+}
+
+async function buildPromptForMessages(
+  chatJid: string,
+  channel: Channel,
+  messages: NewMessage[],
+): Promise<string> {
+  const promptMessages = messages.map((m) => ({ ...m }));
+
+  // Check for vision messages if multimodal backend is configured.
+  if (ANTHROPIC_BASE_URL) {
+    const visionMessage = promptMessages.find(
+      (m) => m.media_kind === 'photo' && m.image_file,
+    );
+    if (visionMessage && visionMessage.image_file) {
+      logger.info({ chatJid }, 'Detected vision message, augmenting prompt');
+      await channel.setTyping?.(chatJid, true);
+      try {
+        const visionPrompt =
+          visionMessage.content
+            .replace(/\[Photo received\].*?\nimage_file: .*$/, '')
+            .trim() || '이 이미지를 설명해줘.';
+        const analysisResult = await processVision(
+          visionMessage.image_file,
+          visionPrompt,
+        );
+
+        // Augment the message content so the Claude agent sees the analysis.
+        visionMessage.content = `[사용자가 보낸 사진 분석 결과]\n${analysisResult}\n\n[사용자 메시지]\n${visionMessage.content}`;
+
+        logger.info({ chatJid }, 'Vision analysis integrated into prompt');
+      } catch (err) {
+        logger.error(
+          { err },
+          'Vision processing failed, falling back to agent without analysis',
+        );
+      }
+    }
+  }
+
+  return formatMessages(promptMessages, TIMEZONE);
+}
+
 function logStructuredAttachments(
   chatJid: string,
   messages: NewMessage[],
@@ -214,40 +261,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
-
-  // Check for vision messages if multimodal backend is configured
-  if (ANTHROPIC_BASE_URL) {
-    const visionMessage = missedMessages.find(
-      (m) => m.media_kind === 'photo' && m.image_file,
-    );
-    if (visionMessage && visionMessage.image_file) {
-      logger.info({ chatJid }, 'Detected vision message, augmenting prompt');
-      await channel.setTyping?.(chatJid, true);
-      try {
-        const visionPrompt =
-          visionMessage.content
-            .replace(/\[Photo received\].*?\nimage_file: .*$/, '')
-            .trim() || '이 이미지를 설명해줘.';
-        const analysisResult = await processVision(
-          visionMessage.image_file,
-          visionPrompt,
-        );
-
-        // Augment the message content so the Claude agent sees the analysis
-        visionMessage.content = `[사용자가 보낸 사진 분석 결과]\n${analysisResult}\n\n[사용자 메시지]\n${visionMessage.content}`;
-
-        logger.info({ chatJid }, 'Vision analysis integrated into prompt');
-        // Continue to normal agent processing so it can respond to the user
-      } catch (err) {
-        logger.error(
-          { err },
-          'Vision processing failed, falling back to agent without analysis',
-        );
-      }
-    }
-  }
-
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
   const previousCursor = lastAgentTimestamp[chatJid] || '';
@@ -277,35 +290,90 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
+  let output: 'success' | 'error' | 'input_too_large' = 'error';
+  let candidateMessages = missedMessages;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      const text = sanitizeOutboundText(raw);
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
-      }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
+  while (true) {
+    const prompt = await buildPromptForMessages(
+      chatJid,
+      channel,
+      candidateMessages,
+    );
+    const hasSmallerRetry = candidateMessages.length > 1;
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+    output = await runAgent(
+      group,
+      prompt,
+      chatJid,
+      async (result) => {
+        // Streaming output callback — called for each agent result
+        if (result.result) {
+          const raw =
+            typeof result.result === 'string'
+              ? result.result
+              : JSON.stringify(result.result);
+          const text = sanitizeOutboundText(raw);
+          logger.info(
+            { group: group.name },
+            `Agent output: ${raw.slice(0, 200)}`,
+          );
+          if (text) {
+            await channel.sendMessage(chatJid, text);
+            outputSentToUser = true;
+          }
+          // Only reset idle timer on actual results, not session-update markers (result: null)
+          resetIdleTimer();
+        }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+        if (result.status === 'success') {
+          queue.notifyIdle(chatJid);
+        }
+
+        if (result.status === 'error') {
+          hadError = true;
+        }
+      },
+      false,
+      hasSmallerRetry,
+    );
+
+    if (output !== 'input_too_large') break;
+
+    const nextSize = getReducedBatchSize(candidateMessages.length);
+    if (nextSize === 0) break;
+
+    const droppedCount = candidateMessages.length - nextSize;
+    logger.warn(
+      {
+        group: group.name,
+        originalCount: missedMessages.length,
+        attemptedCount: candidateMessages.length,
+        nextCount: nextSize,
+        droppedCount,
+      },
+      'Input too large — retrying with only the most recent messages',
+    );
+    candidateMessages = candidateMessages.slice(-nextSize);
+  }
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
+
+  if (output === 'success' && candidateMessages.length < missedMessages.length) {
+    const omittedCount = missedMessages.length - candidateMessages.length;
+    await channel.sendMessage(
+      chatJid,
+      `⚠️ Pending context was too large, so I used only the most recent ${candidateMessages.length} messages and skipped ${omittedCount} older message${omittedCount === 1 ? '' : 's'}.`,
+    );
+  }
+
+  if (output === 'input_too_large') {
+    logger.warn(
+      { group: group.name },
+      'Input too large, keeping message cursor advanced to avoid retry loop',
+    );
+    return true;
+  }
 
   if (output === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
@@ -349,7 +417,8 @@ async function runAgent(
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
   _isRetry = false,
-): Promise<'success' | 'error'> {
+  suppressInputTooLargeNotice = false,
+): Promise<'success' | 'error' | 'input_too_large'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
 
@@ -437,6 +506,19 @@ async function runAgent(
       setSession(group.folder, output.newSessionId);
     }
 
+    const finalOverflowKind = classifyOverflow(output.result);
+
+    if (
+      _isRetry &&
+      finalOverflowKind === 'input_too_large'
+    ) {
+      logger.warn(
+        { group: group.name },
+        'Input too large persisted after recovery retry',
+      );
+      return 'input_too_large';
+    }
+
     // Handle context overflow: one-shot trim-then-reset, then retry once.
     if (overflowKind !== 'none' && !_isRetry) {
       const notify = async (msg: string) => {
@@ -449,11 +531,12 @@ async function runAgent(
         sessionId: sessions[group.folder],
         sessions,
         notify,
+        suppressInputTooLargeNotice,
       });
 
       if (result === 'no_retry') {
         // input_too_large — user was notified; retrying would fail again.
-        return 'error';
+        return 'input_too_large';
       }
 
       // Update in-memory session to whatever gracefulReset decided.
@@ -464,7 +547,14 @@ async function runAgent(
         setSession(group.folder, result);
       }
 
-      return runAgent(group, prompt, chatJid, onOutput, true);
+      return runAgent(
+        group,
+        prompt,
+        chatJid,
+        onOutput,
+        true,
+        suppressInputTooLargeNotice,
+      );
     }
 
     if (output.status === 'error') {

@@ -107,14 +107,18 @@ export interface ContextResetOptions {
   sessions: Record<string, string | undefined>;
   /** Send a user-facing notification message. */
   notify: (msg: string) => Promise<void>;
+  /** Suppress the user-facing notice for input-sized retries handled by caller. */
+  suppressInputTooLargeNotice?: boolean;
 }
 
 /**
  * Handle a context overflow event using a one-shot trim-then-reset strategy:
  *
- *  input_too_large  → Notify the user immediately; leave history untouched.
- *                     Retrying with the same prompt would fail again, so the
- *                     caller should NOT retry.
+ *  input_too_large  → Ambiguous on some backends: this can mean the new user
+ *                     prompt itself is too large, or that resumed session
+ *                     history pushed the effective prompt over the limit.
+ *                     If a session exists, try trim-then-reset first.
+ *                     If no session exists, notify the user immediately.
  *
  *  session_too_large / placeholder →
  *    1. Attempt to trim the .jsonl to the last 40 turns.
@@ -125,25 +129,74 @@ export interface ContextResetOptions {
  * Returns the session ID the caller should use for the retry:
  *  - Same sessionId  → trim succeeded; retry with existing session.
  *  - undefined       → full reset; start a fresh session.
- *  - 'no_retry'      → input_too_large; caller must NOT retry.
+ *  - 'no_retry'      → input_too_large even after history recovery; caller
+ *                      must NOT retry.
  */
 export async function gracefulReset(
   kind: OverflowKind,
   opts: ContextResetOptions,
 ): Promise<string | undefined | 'no_retry'> {
-  const { groupFolder, sessionId, sessions, notify } = opts;
+  const {
+    groupFolder,
+    sessionId,
+    sessions,
+    notify,
+    suppressInputTooLargeNotice = false,
+  } = opts;
 
   // ------------------------------------------------------------------
-  // Case 1: The prompt itself is the problem — history is irrelevant.
+  // Case 1: The backend says "Prompt is too long". On some providers this
+  // can mean either:
+  //  - the user's new message is too large by itself, or
+  //  - resumed session history made the effective prompt too large.
+  // If a session exists, try the same trim/reset recovery used for
+  // session overflow before giving up.
   // ------------------------------------------------------------------
   if (kind === 'input_too_large') {
-    await notify(
-      '⚠️ Your message is too long for the model context window. ' +
-        'Please send a shorter prompt.',
-    );
+    if (sessionId) {
+      const removed = trimTranscript(groupFolder, sessionId, 40);
+
+      if (removed > 0) {
+        await notify(
+          '⚠️ Context limit reached — oldest conversation history has been ' +
+            'trimmed to continue.',
+        );
+        logger.info(
+          { groupFolder, sessionId, removed },
+          'Input too large resolved by transcript trim — retrying with same session',
+        );
+        return sessionId;
+      }
+
+      logger.warn(
+        { groupFolder, sessionId, removed },
+        'Input too large with existing session — trim had nothing to remove, falling back to full reset',
+      );
+
+      delete sessions[groupFolder];
+      deleteSession(groupFolder);
+      deleteSessionTranscript(groupFolder, sessionId);
+
+      await notify(
+        '⚠️ Context limit reached — conversation history has been cleared ' +
+          'to continue.',
+      );
+      logger.warn(
+        { groupFolder, sessionId },
+        'Session fully reset after input_too_large',
+      );
+      return undefined;
+    }
+
+    if (!suppressInputTooLargeNotice) {
+      await notify(
+        '⚠️ Your message is too long for the model context window. ' +
+          'Please send a shorter prompt.',
+      );
+    }
     logger.warn(
-      { groupFolder },
-      'Input too large — user notified, no session reset',
+      { groupFolder, suppressInputTooLargeNotice },
+      'Input too large — no session reset',
     );
     return 'no_retry';
   }
