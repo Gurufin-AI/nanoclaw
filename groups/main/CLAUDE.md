@@ -54,16 +54,33 @@ Load when relevant (see `MEMORY_INDEX.md` for full trigger table):
 - `conversations/` — when user references a past event
 
 When you learn something important, write it to the appropriate file immediately and update the `Last Updated` field in `MEMORY_INDEX.md`. See `MEMORY_INDEX.md` for write discipline and pruning rules.
-
 ## Message Formatting
 
-Do NOT use markdown headings (##) or double asterisks (**). Use the following formatting:
-- *Bold* (single asterisks)
-- _Italic_ (underscores)
-- • Bullets (bullet points)
-- ```Code blocks``` (triple backticks)
+Format messages based on the channel. Check the group folder name prefix:
 
-Keep messages clean and readable for mobile chat.
+### Slack channels (folder starts with `slack_`)
+
+Use Slack mrkdwn syntax. Run `/slack-formatting` for the full reference. Key rules:
+- `*bold*` (single asterisks)
+- `_italic_` (underscores)
+- `<https://url|link text>` for links (NOT `[text](url)`)
+- `•` bullets (no numbered lists)
+- `:emoji:` shortcodes like `:white_check_mark:`, `:rocket:`
+- `>` for block quotes
+- No `##` headings — use `*Bold text*` instead
+
+### WhatsApp/Telegram (folder starts with `whatsapp_` or `telegram_`)
+
+- `*bold*` (single asterisks, NEVER **double**)
+- `_italic_` (underscores)
+- `•` bullet points
+- ` ``` ` code blocks
+
+No `##` headings. No `[links](url)`. No `**double stars**`.
+
+### Discord (folder starts with `discord_`)
+
+Standard Markdown: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
 
 ---
 
