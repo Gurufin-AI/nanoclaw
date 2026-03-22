@@ -260,6 +260,32 @@ describe('getMessagesSince', () => {
     );
     expect(msgs).toHaveLength(0);
   });
+
+  it('preserves insertion order for messages with the same timestamp', () => {
+    store({
+      id: 'm5',
+      chat_jid: 'group@g.us',
+      sender: 'Dan@s.whatsapp.net',
+      sender_name: 'Dan',
+      content: 'same-ts first',
+      timestamp: '2024-01-01T00:00:05.000Z',
+    });
+    store({
+      id: 'm6',
+      chat_jid: 'group@g.us',
+      sender: 'Eve@s.whatsapp.net',
+      sender_name: 'Eve',
+      content: 'same-ts second',
+      timestamp: '2024-01-01T00:00:05.000Z',
+    });
+
+    const msgs = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:04.000Z',
+      'Andy',
+    );
+    expect(msgs.map((m) => m.id)).toEqual(['m5', 'm6']);
+  });
 });
 
 // --- getNewMessages ---
@@ -481,6 +507,33 @@ describe('message query LIMIT', () => {
       50,
     );
     expect(messages).toHaveLength(10);
+  });
+
+  it('getNewMessages preserves insertion order for identical timestamps', () => {
+    store({
+      id: 'lim-same-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'same 1',
+      timestamp: '2024-01-01T00:00:11.000Z',
+    });
+    store({
+      id: 'lim-same-2',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'same 2',
+      timestamp: '2024-01-01T00:00:11.000Z',
+    });
+
+    const { messages } = getNewMessages(
+      ['group@g.us'],
+      '2024-01-01T00:00:10.000Z',
+      'Andy',
+      10,
+    );
+    expect(messages.map((m) => m.id)).toEqual(['lim-same-1', 'lim-same-2']);
   });
 });
 

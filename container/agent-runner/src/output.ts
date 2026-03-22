@@ -12,6 +12,7 @@ export interface SDKResultPayload {
   subtype?: string;
   result?: string | null;
   errors?: string[];
+  is_error?: boolean;
 }
 
 const CONTROL_OR_FORMAT_CHARS =
@@ -68,6 +69,17 @@ export function isPlaceholderResult(text: string | null | undefined): boolean {
 
 export function isSdkErrorResult(message: SDKResultPayload): boolean {
   return typeof message.subtype === 'string' && message.subtype.startsWith('error_');
+}
+
+export function isSdkHostNotice(message: SDKResultPayload): boolean {
+  return isSdkErrorResult(message) || message.is_error === true;
+}
+
+export function labelHostNotice(text: string | null | undefined): string | null {
+  const normalized =
+    typeof text === 'string' ? normalizeAssistantText(text) : null;
+  if (!normalized) return null;
+  return `[Agent Host Notice]\n${normalized}`;
 }
 
 export function summarizeSdkError(message: SDKResultPayload): string | null {

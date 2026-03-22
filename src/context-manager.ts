@@ -28,6 +28,32 @@ export function classifyOverflow(
   return 'none';
 }
 
+/**
+ * In streaming mode the final container result is often null, so rely on any
+ * overflow already observed during streamed callbacks before inspecting the
+ * terminal result payload.
+ */
+export function resolveObservedOverflow(
+  streamedKind: OverflowKind,
+  finalResult: string | null | undefined,
+): OverflowKind {
+  if (streamedKind !== 'none') return streamedKind;
+  return classifyOverflow(finalResult);
+}
+
+/**
+ * Clear a group's persisted session state and transcript.
+ */
+export function hardResetSession(
+  groupFolder: string,
+  sessionId: string | undefined,
+  sessions: Record<string, string | undefined>,
+): void {
+  delete sessions[groupFolder];
+  deleteSession(groupFolder);
+  if (sessionId) deleteSessionTranscript(groupFolder, sessionId);
+}
+
 // ---------------------------------------------------------------------------
 // Transcript path resolution
 // ---------------------------------------------------------------------------
@@ -173,9 +199,7 @@ export async function gracefulReset(
         'Input too large with existing session — trim had nothing to remove, falling back to full reset',
       );
 
-      delete sessions[groupFolder];
-      deleteSession(groupFolder);
-      deleteSessionTranscript(groupFolder, sessionId);
+      hardResetSession(groupFolder, sessionId, sessions);
 
       await notify(
         '⚠️ Context limit reached — conversation history has been cleared ' +
@@ -232,9 +256,7 @@ export async function gracefulReset(
     }
 
     // Full reset: wipe in-memory state, SQLite row, and on-disk transcript.
-    delete sessions[groupFolder];
-    deleteSession(groupFolder);
-    if (sessionId) deleteSessionTranscript(groupFolder, sessionId);
+    hardResetSession(groupFolder, sessionId, sessions);
 
     await notify(
       '⚠️ Context limit reached — conversation history has been cleared ' +

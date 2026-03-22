@@ -23,6 +23,8 @@ import {
   isPlaceholderResult,
   type AssistantMessagePayload,
   isSdkErrorResult,
+  isSdkHostNotice,
+  labelHostNotice,
   type SDKResultPayload,
   summarizeSdkError,
 } from './output.js';
@@ -520,12 +522,15 @@ async function runQuery(
       const outboundText = assembledText
         || (isPlaceholderResult(textResult) ? null : textResult)
         || null;
+      const visibleText = isSdkHostNotice(sdkResult)
+        ? labelHostNotice(outboundText)
+        : outboundText;
       log(`Result #${resultCount}: subtype=${message.subtype} RAW=${JSON.stringify(message)}`);
       if (isSdkErrorResult(sdkResult)) {
         fatalError = true;
         writeOutput({
           status: 'error',
-          result: outboundText,
+          result: visibleText,
           newSessionId,
           error: summarizeSdkError(sdkResult) || 'Agent SDK execution failed',
         });
@@ -534,7 +539,11 @@ async function runQuery(
       }
       writeOutput({
         status: 'success',
-        result: outboundText || (isPlaceholderResult(textResult) ? PLACEHOLDER_OUTPUT_RESULT : null),
+        result:
+          visibleText ||
+          (isPlaceholderResult(textResult)
+            ? PLACEHOLDER_OUTPUT_RESULT
+            : null),
         newSessionId
       });
       assistantChunks.length = 0;

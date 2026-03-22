@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   extractAssistantText,
   isSdkErrorResult,
+  isSdkHostNotice,
+  labelHostNotice,
   normalizeAssistantText,
   summarizeSdkError,
 } from './output.js';
@@ -95,6 +97,19 @@ describe('agent-runner output extraction', () => {
   it('classifies SDK error result subtypes', () => {
     expect(isSdkErrorResult({ subtype: 'error_during_execution' })).toBe(true);
     expect(isSdkErrorResult({ subtype: 'success' })).toBe(false);
+  });
+
+  it('treats is_error results as host notices', () => {
+    expect(isSdkHostNotice({ subtype: 'success', is_error: true })).toBe(true);
+    expect(isSdkHostNotice({ subtype: 'success', is_error: false })).toBe(
+      false,
+    );
+  });
+
+  it('labels host notices explicitly', () => {
+    expect(labelHostNotice('Model unavailable')).toBe(
+      '[Agent Host Notice]\nModel unavailable',
+    );
   });
 
   it('summarizes SDK errors from the first error line', () => {

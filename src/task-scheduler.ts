@@ -22,7 +22,9 @@ import {
 import {
   classifyOverflow,
   gracefulReset,
+  hardResetSession,
   OverflowKind,
+  resolveObservedOverflow,
 } from './context-manager.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -91,9 +93,7 @@ function resetTaskGroupSession(
   const currentSessionId = sessions[task.group_folder];
   if (!currentSessionId) return false;
 
-  delete sessions[task.group_folder];
-  deleteSession(task.group_folder);
-  deleteSessionTranscript(task.group_folder, currentSessionId);
+  hardResetSession(task.group_folder, currentSessionId, sessions);
 
   logger.warn(
     {
@@ -276,7 +276,10 @@ async function runTask(
       result = output.result;
     }
 
-    const finalOverflowKind = classifyOverflow(output.result);
+    const finalOverflowKind = resolveObservedOverflow(
+      overflowKind,
+      output.result,
+    );
 
     if (_isRetry && finalOverflowKind !== 'none') {
       const reset = resetTaskGroupSession(task, sessions);
@@ -292,12 +295,12 @@ async function runTask(
     }
 
     // Handle context overflow: one-shot trim-then-reset, then retry once.
-    if (overflowKind !== 'none' && !_isRetry) {
+    if (finalOverflowKind !== 'none' && !_isRetry) {
       const notify = async (msg: string) => {
         await deps.sendMessage(task.chat_jid, msg).catch(() => {});
       };
 
-      const resetResult = await gracefulReset(overflowKind, {
+      const resetResult = await gracefulReset(finalOverflowKind, {
         groupFolder: task.group_folder,
         sessionId: sessions[task.group_folder],
         sessions,

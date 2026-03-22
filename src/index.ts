@@ -52,7 +52,9 @@ import {
 import {
   classifyOverflow,
   gracefulReset,
+  hardResetSession,
   OverflowKind,
+  resolveObservedOverflow,
 } from './context-manager.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -509,7 +511,10 @@ async function runAgent(
       setSession(group.folder, output.newSessionId);
     }
 
-    const finalOverflowKind = classifyOverflow(output.result);
+    const finalOverflowKind = resolveObservedOverflow(
+      overflowKind,
+      output.result,
+    );
 
     if (_isRetry && finalOverflowKind === 'input_too_large') {
       logger.warn(
@@ -519,14 +524,23 @@ async function runAgent(
       return 'input_too_large';
     }
 
+    if (_isRetry && finalOverflowKind !== 'none') {
+      hardResetSession(group.folder, sessions[group.folder], sessions);
+      logger.warn(
+        { group: group.name, overflowKind: finalOverflowKind },
+        'Context overflow persisted after recovery retry; session was reset',
+      );
+      return 'error';
+    }
+
     // Handle context overflow: one-shot trim-then-reset, then retry once.
-    if (overflowKind !== 'none' && !_isRetry) {
+    if (finalOverflowKind !== 'none' && !_isRetry) {
       const notify = async (msg: string) => {
         const ch = findChannel(channels, chatJid);
         await ch?.sendMessage(chatJid, msg).catch(() => {});
       };
 
-      const result = await gracefulReset(overflowKind, {
+      const result = await gracefulReset(finalOverflowKind, {
         groupFolder: group.folder,
         sessionId: sessions[group.folder],
         sessions,
