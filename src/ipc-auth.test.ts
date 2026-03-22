@@ -602,6 +602,25 @@ describe('schedule_task context_mode', () => {
     expect(tasks[0].context_mode).toBe('isolated');
   });
 
+  it('accepts context_mode=task-scoped', async () => {
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        prompt: 'task scoped context',
+        schedule_type: 'once',
+        schedule_value: '2025-06-01T00:00:00',
+        context_mode: 'task-scoped',
+        targetJid: 'other@g.us',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const tasks = getAllTasks();
+    expect(tasks[0].context_mode).toBe('task-scoped');
+  });
+
   it('defaults invalid context_mode to isolated', async () => {
     await processTaskIpc(
       {

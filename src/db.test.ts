@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import {
   _initTestDatabase,
+  claimTaskForRun,
   createTask,
   deleteTask,
   getAllChats,
@@ -12,6 +13,7 @@ import {
   setRegisteredGroup,
   storeChatMetadata,
   storeMessage,
+  updateTaskAfterRun,
   updateTask,
 } from './db.js';
 
@@ -431,6 +433,50 @@ describe('task CRUD', () => {
 
     updateTask('task-2', { status: 'paused' });
     expect(getTaskById('task-2')!.status).toBe('paused');
+  });
+
+  it('claims an active task exactly once', () => {
+    createTask({
+      id: 'task-claim',
+      group_folder: 'main',
+      chat_jid: 'group@g.us',
+      prompt: 'claim me',
+      schedule_type: 'once',
+      schedule_value: '2024-06-01T00:00:00.000Z',
+      context_mode: 'isolated',
+      next_run: '2024-06-01T00:00:00.000Z',
+      status: 'active',
+      created_at: '2024-01-01T00:00:00.000Z',
+    });
+
+    expect(claimTaskForRun('task-claim')).toBe(true);
+    expect(claimTaskForRun('task-claim')).toBe(false);
+    expect(getTaskById('task-claim')!.status).toBe('running');
+  });
+
+  it('restores recurring running tasks to active after completion', () => {
+    createTask({
+      id: 'task-running',
+      group_folder: 'main',
+      chat_jid: 'group@g.us',
+      prompt: 'finish me',
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      context_mode: 'isolated',
+      next_run: '2024-06-01T00:00:00.000Z',
+      status: 'running',
+      created_at: '2024-01-01T00:00:00.000Z',
+    });
+
+    updateTaskAfterRun(
+      'task-running',
+      '2024-06-01T00:01:00.000Z',
+      'Completed successfully',
+    );
+
+    const task = getTaskById('task-running')!;
+    expect(task.status).toBe('active');
+    expect(task.next_run).toBe('2024-06-01T00:01:00.000Z');
   });
 
   it('deletes a task and its run logs', () => {

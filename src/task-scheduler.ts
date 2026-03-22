@@ -12,7 +12,10 @@ import {
   deleteSession,
   deleteSessionTranscript,
   getAllTasks,
+  claimTaskForRun,
   getDueTasks,
+  getMessagesSince,
+  getRecentMessages,
   getTaskById,
   logTaskRun,
   updateTask,
@@ -30,6 +33,7 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { sanitizeOutboundText } from './output-sanitization.js';
+import { formatMessages } from './router.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
 
 /**
@@ -86,6 +90,36 @@ export interface SchedulerDependencies {
   sendMessage: (jid: string, text: string) => Promise<void>;
 }
 
+function buildTaskScopedPrompt(task: ScheduledTask): string {
+  const sections = [
+    '[TASK-SCOPED CONTEXT]',
+    `Task ID: ${task.id}`,
+    `Schedule: ${task.schedule_type} (${task.schedule_value})`,
+    '',
+    '[TASK INSTRUCTIONS]',
+    task.prompt,
+  ];
+
+  if (task.last_result) {
+    sections.push('', '[PREVIOUS RUN SUMMARY]', task.last_result);
+  }
+
+  const recentMessages = task.last_run
+    ? getMessagesSince(task.chat_jid, task.last_run, ASSISTANT_NAME, 3)
+    : getRecentMessages(task.chat_jid, ASSISTANT_NAME, 3);
+
+  if (recentMessages.length > 0) {
+    sections.push(
+      '',
+      '[RECENT USER CONTEXT]',
+      'Use these only as supplementary context. Prefer the task instructions above if they conflict.',
+      formatMessages(recentMessages, TIMEZONE),
+    );
+  }
+
+  return sections.join('\n');
+}
+
 function resetTaskGroupSession(
   task: ScheduledTask,
   sessions: Record<string, string>,
@@ -112,6 +146,17 @@ async function runTask(
   _isRetry = false,
 ): Promise<void> {
   const startTime = Date.now();
+  const finalizeRun = (status: 'success' | 'error', summary: string) => {
+    logTaskRun({
+      task_id: task.id,
+      run_at: new Date().toISOString(),
+      duration_ms: Date.now() - startTime,
+      status,
+      result: status === 'success' ? summary : null,
+      error: status === 'error' ? summary : null,
+    });
+    updateTaskAfterRun(task.id, computeNextRun(task), summary);
+  };
   let groupDir: string;
   try {
     groupDir = resolveGroupFolderPath(task.group_folder);
@@ -193,6 +238,10 @@ async function runTask(
   const sessions = deps.getSessions();
   const sessionId =
     task.context_mode === 'group' ? sessions[task.group_folder] : undefined;
+  const taskPrompt =
+    task.context_mode === 'task-scoped'
+      ? buildTaskScopedPrompt(task)
+      : task.prompt;
 
   // After the task produces a result, close the container promptly.
   // Tasks are single-turn — no need to wait IDLE_TIMEOUT (30 min) for the
@@ -212,7 +261,7 @@ async function runTask(
     const output = await runContainerAgent(
       group,
       {
-        prompt: task.prompt,
+        prompt: taskPrompt,
         sessionId,
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,
@@ -291,6 +340,10 @@ async function runTask(
           )
           .catch(() => {});
       }
+      finalizeRun(
+        'error',
+        'Error: Scheduled task context overflow persisted after recovery retry',
+      );
       return;
     }
 
@@ -309,6 +362,10 @@ async function runTask(
 
       if (resetResult === 'no_retry') {
         // input_too_large — user was notified; retrying would fail again.
+        finalizeRun(
+          'error',
+          'Error: Scheduled task input exceeded context window',
+        );
         return;
       }
 
@@ -322,10 +379,6 @@ async function runTask(
       return runTask(task, deps, true);
     }
 
-    logger.info(
-      { taskId: task.id, durationMs: Date.now() - startTime },
-      'Task completed',
-    );
   } catch (err) {
     if (closeTimer) clearTimeout(closeTimer);
     error = err instanceof Error ? err.message : String(err);
@@ -349,6 +402,16 @@ async function runTask(
     : result
       ? result.slice(0, 200)
       : 'Completed';
+
+  if (error) {
+    logger.error(
+      { taskId: task.id, durationMs, error },
+      'Scheduled task failed',
+    );
+  } else {
+    logger.info({ taskId: task.id, durationMs }, 'Task completed');
+  }
+
   updateTaskAfterRun(task.id, nextRun, resultSummary);
 }
 
@@ -373,6 +436,9 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         // Re-check task status in case it was paused/cancelled
         const currentTask = getTaskById(task.id);
         if (!currentTask || currentTask.status !== 'active') {
+          continue;
+        }
+        if (!claimTaskForRun(currentTask.id)) {
           continue;
         }
 

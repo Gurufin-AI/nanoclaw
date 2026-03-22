@@ -143,10 +143,12 @@ server.tool(
 CONTEXT MODE - Choose based on task type:
 • "group": Task runs in the group's conversation context, with access to chat history. Use for tasks that need context about ongoing discussions, user preferences, or recent interactions.
 • "isolated": Task runs in a fresh session with no conversation history. Use for independent tasks that don't need prior context. When using isolated mode, include all necessary context in the prompt itself.
+• "task-scoped": Task runs in a fresh session, but NanoClaw injects a minimal task-specific context block containing the previous run summary and a few recent user messages. Use for recurring tasks that should stay independent from the full chat history but still react to recent instructions.
 
 If unsure which mode to use, you can ask the user. Examples:
 - "Remind me about our discussion" → group (needs conversation context)
 - "Check the weather every morning" → isolated (self-contained task)
+- "Send the nightly market update, but consider any instructions I sent since yesterday" → task-scoped
 - "Follow up on my request" → group (needs to know what was requested)
 - "Generate a daily report" → isolated (just needs instructions in prompt)
 
@@ -165,7 +167,7 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone = ${process.env.TZ || 'syste
     prompt: z.string().describe('What the agent should do when the task runs. For isolated mode, include all necessary context here.'),
     schedule_type: z.enum(['cron', 'interval', 'once']).describe('cron=recurring at specific times, interval=recurring every N ms, once=run once at specific time'),
     schedule_value: z.string().describe(`cron: LOCAL time expression like "0 22 * * *" (10pm local) — hours are local, never UTC-converted | interval: milliseconds like "300000" | once: local timestamp like "2026-02-01T15:30:00" (no Z suffix!)`),
-    context_mode: z.enum(['group', 'isolated']).default('group').describe('group=runs with chat history and memory, isolated=fresh session (include context in prompt)'),
+    context_mode: z.enum(['group', 'isolated', 'task-scoped']).default('group').describe('group=runs with chat history and memory, isolated=fresh session, task-scoped=fresh session with previous run summary and a few recent user messages injected'),
     target_group_jid: z.string().optional().describe('(Main group only) JID of the group to schedule the task for. Defaults to the current group.'),
   },
   async (args) => {

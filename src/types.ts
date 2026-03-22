@@ -65,11 +65,11 @@ export interface ScheduledTask {
   prompt: string;
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
-  context_mode: 'group' | 'isolated';
+  context_mode: 'group' | 'isolated' | 'task-scoped';
   next_run: string | null;
   last_run: string | null;
   last_result: string | null;
-  status: 'active' | 'paused' | 'completed';
+  status: 'active' | 'running' | 'paused' | 'completed';
   created_at: string;
 }
 

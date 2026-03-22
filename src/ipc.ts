@@ -333,7 +333,9 @@ export async function processTaskIpc(
           data.taskId ||
           `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const contextMode =
-          data.context_mode === 'group' || data.context_mode === 'isolated'
+          data.context_mode === 'group' ||
+          data.context_mode === 'isolated' ||
+          data.context_mode === 'task-scoped'
             ? data.context_mode
             : 'isolated';
         createTask({

@@ -427,6 +427,28 @@ export function getMessagesSince(
   return rows.map(normalizeMessageRow);
 }
 
+export function getRecentMessages(
+  chatJid: string,
+  botPrefix: string,
+  limit: number = 20,
+): NewMessage[] {
+  const sql = `
+    SELECT * FROM (
+      SELECT rowid AS _rowid, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file
+      FROM messages
+      WHERE chat_jid = ?
+        AND is_bot_message = 0 AND content NOT LIKE ?
+        AND content != '' AND content IS NOT NULL
+      ORDER BY timestamp DESC, _rowid DESC
+      LIMIT ?
+    ) ORDER BY timestamp, _rowid
+  `;
+  const rows = db
+    .prepare(sql)
+    .all(chatJid, `${botPrefix}:%`, limit) as NewMessage[];
+  return rows.map(normalizeMessageRow);
+}
+
 function normalizeMessageRow(row: NewMessage): NewMessage {
   return {
     ...row,
@@ -539,6 +561,19 @@ export function getDueTasks(): ScheduledTask[] {
     .all(now) as ScheduledTask[];
 }
 
+export function claimTaskForRun(id: string): boolean {
+  const result = db
+    .prepare(
+      `
+    UPDATE scheduled_tasks
+    SET status = 'running'
+    WHERE id = ? AND status = 'active'
+  `,
+    )
+    .run(id);
+  return result.changes > 0;
+}
+
 export function updateTaskAfterRun(
   id: string,
   nextRun: string | null,
@@ -548,7 +583,7 @@ export function updateTaskAfterRun(
   db.prepare(
     `
     UPDATE scheduled_tasks
-    SET next_run = ?, last_run = ?, last_result = ?, status = CASE WHEN ? IS NULL THEN 'completed' ELSE status END
+    SET next_run = ?, last_run = ?, last_result = ?, status = CASE WHEN ? IS NULL THEN 'completed' ELSE 'active' END
     WHERE id = ?
   `,
   ).run(nextRun, now, lastResult, nextRun, id);
