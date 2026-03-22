@@ -378,7 +378,6 @@ async function runTask(
 
       return runTask(task, deps, true);
     }
-
   } catch (err) {
     if (closeTimer) clearTimeout(closeTimer);
     error = err instanceof Error ? err.message : String(err);

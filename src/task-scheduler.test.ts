@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  mockRunContainerAgent,
-  mockLoggerError,
-  mockLoggerInfo,
-} = vi.hoisted(() => ({
-  mockRunContainerAgent: vi.fn(),
-  mockLoggerError: vi.fn(),
-  mockLoggerInfo: vi.fn(),
-}));
+const { mockRunContainerAgent, mockLoggerError, mockLoggerInfo } = vi.hoisted(
+  () => ({
+    mockRunContainerAgent: vi.fn(),
+    mockLoggerError: vi.fn(),
+    mockLoggerInfo: vi.fn(),
+  }),
+);
 
 vi.mock('./container-runner.js', () => ({
   runContainerAgent: mockRunContainerAgent,
