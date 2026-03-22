@@ -161,7 +161,10 @@ export function startCredentialProxy(
         }
 
         // Mock Anthropic-only endpoints for third-party providers
-        if (isThirdParty && (req.url || '').includes('/v1/messages/count_tokens')) {
+        if (
+          isThirdParty &&
+          (req.url || '').includes('/v1/messages/count_tokens')
+        ) {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ input_tokens: 0 }));
           return;
@@ -252,7 +255,11 @@ export function startCredentialProxy(
                 const encoding = upRes.headers['content-encoding'];
                 if (encoding === 'gzip') {
                   gunzip(rawResponseBody, (_err, buf) => {
-                    logError(_err ? rawResponseBody.toString('utf8') : buf.toString('utf8'));
+                    logError(
+                      _err
+                        ? rawResponseBody.toString('utf8')
+                        : buf.toString('utf8'),
+                    );
                   });
                 } else {
                   logError(rawResponseBody.toString('utf8'));

@@ -286,10 +286,16 @@ function buildContainerArgs(
 
   // Forward custom model IDs so the container agent uses the configured models
   if (ANTHROPIC_DEFAULT_MODEL) {
-    args.push('-e', `ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_MODEL}`);
+    args.push(
+      '-e',
+      `ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_MODEL}`,
+    );
   }
   if (ANTHROPIC_DEFAULT_HAIKU_MODEL) {
-    args.push('-e', `ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL}`);
+    args.push(
+      '-e',
+      `ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL}`,
+    );
   }
 
   // Runtime-specific args for host gateway resolution
