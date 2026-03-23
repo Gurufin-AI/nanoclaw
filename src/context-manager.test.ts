@@ -11,6 +11,9 @@ describe('context manager', () => {
       'session_too_large',
     );
     expect(classifyOverflow('Prompt is too long')).toBe('input_too_large');
+    expect(classifyOverflow('[Agent Host Notice]\nPrompt is too long')).toBe(
+      'input_too_large',
+    );
     expect(classifyOverflow('__NANOCLAW_PLACEHOLDER_OUTPUT__')).toBe(
       'placeholder',
     );

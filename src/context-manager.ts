@@ -23,7 +23,11 @@ export function classifyOverflow(
 ): OverflowKind {
   if (!result) return 'none';
   if (result.includes('exceed_context_size_error')) return 'session_too_large';
-  if (result === 'Prompt is too long') return 'input_too_large';
+  // The container wraps error results with "[Agent Host Notice]\n" prefix.
+  const normalized = result.startsWith('[Agent Host Notice]\n')
+    ? result.slice('[Agent Host Notice]\n'.length).trim()
+    : result;
+  if (normalized === 'Prompt is too long') return 'input_too_large';
   if (result === '__NANOCLAW_PLACEHOLDER_OUTPUT__') return 'placeholder';
   return 'none';
 }
