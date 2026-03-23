@@ -588,6 +588,10 @@ async function main(): Promise<void> {
     );
     openAiCompatProxy = await startAnthropicOpenAiProxy(upstreamBaseUrl!);
     sdkEnv['ANTHROPIC_BASE_URL'] = openAiCompatProxy.baseUrl;
+    // Also update process.env so the SDK's internal Haiku/compact calls
+    // (which read process.env directly, not the env option) go through
+    // the proxy instead of hitting the upstream OpenAI-format server directly.
+    process.env['ANTHROPIC_BASE_URL'] = openAiCompatProxy.baseUrl;
     log(`Compatibility proxy listening at ${openAiCompatProxy.baseUrl}`);
   }
 
