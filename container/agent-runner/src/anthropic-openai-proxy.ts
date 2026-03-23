@@ -74,6 +74,7 @@ interface OpenAiToolCall {
 interface OpenAiChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content?: string | null;
+  reasoning_content?: string | null;
   tool_call_id?: string;
   tool_calls?: OpenAiToolCall[];
 }
@@ -105,8 +106,13 @@ function resolveBaseUrl(baseUrl: string, relativePath: string): string {
   return new URL(relativePath.replace(/^\//, ''), normalizedBase).toString();
 }
 
+function stripThinkingBlocks(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
 function contentBlocksFromText(text: string): AnthropicTextBlock[] {
-  return text ? [{ type: 'text', text }] : [];
+  const stripped = stripThinkingBlocks(text);
+  return stripped ? [{ type: 'text', text: stripped }] : [];
 }
 
 function anthropicContentToText(
