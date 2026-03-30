@@ -2,36 +2,34 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, exec, spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 import {
-  ANTHROPIC_BASE_URL,
-  ANTHROPIC_DEFAULT_MODEL,
-  ANTHROPIC_DEFAULT_HAIKU_MODEL,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
-  CREDENTIAL_PROXY_PORT,
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  ONECLI_URL,
   TIMEZONE,
   X_AUTH_TOKEN,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
-  CONTAINER_HOST_GATEWAY,
   CONTAINER_RUNTIME_BIN,
   hostGatewayArgs,
   readonlyMountArgs,
   stopContainer,
 } from './container-runtime.js';
-import { detectAuthMode } from './credential-proxy.js';
+import { OneCLI } from '@onecli-sh/sdk';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
+
+const onecli = new OneCLI({ url: ONECLI_URL });
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -42,10 +40,11 @@ export interface ContainerInput {
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
-  channel: string;
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  script?: string;
+  channel?: string;
 }
 
 export interface ContainerOutput {
@@ -59,34 +58,6 @@ interface VolumeMount {
   hostPath: string;
   containerPath: string;
   readonly: boolean;
-}
-
-function syncAgentRunnerSource(srcDir: string, dstDir: string): void {
-  if (!fs.existsSync(srcDir)) return;
-  fs.mkdirSync(dstDir, { recursive: true });
-
-  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
-    const srcPath = path.join(srcDir, entry.name);
-    const dstPath = path.join(dstDir, entry.name);
-
-    if (entry.isDirectory()) {
-      syncAgentRunnerSource(srcPath, dstPath);
-      continue;
-    }
-
-    // Runtime container builds should not compile test files from the mounted
-    // group-specific source tree because vitest is not installed there.
-    if (entry.name.endsWith('.test.ts')) {
-      try {
-        fs.unlinkSync(dstPath);
-      } catch {
-        // ignore missing files
-      }
-      continue;
-    }
-
-    fs.copyFileSync(srcPath, dstPath);
-  }
 }
 
 function buildVolumeMounts(
@@ -110,7 +81,7 @@ function buildVolumeMounts(
     });
 
     // Shadow .env so the agent cannot read secrets from the mounted project root.
-    // Credentials are injected by the credential proxy, never exposed to containers.
+    // Credentials are injected by the OneCLI gateway, never exposed to containers.
     const envFile = path.join(projectRoot, '.env');
     if (fs.existsSync(envFile)) {
       mounts.push({
@@ -224,7 +195,16 @@ function buildVolumeMounts(
     'agent-runner-src',
   );
   if (fs.existsSync(agentRunnerSrc)) {
-    syncAgentRunnerSource(agentRunnerSrc, groupAgentRunnerDir);
+    const srcIndex = path.join(agentRunnerSrc, 'index.ts');
+    const cachedIndex = path.join(groupAgentRunnerDir, 'index.ts');
+    const needsCopy =
+      !fs.existsSync(groupAgentRunnerDir) ||
+      !fs.existsSync(cachedIndex) ||
+      (fs.existsSync(srcIndex) &&
+        fs.statSync(srcIndex).mtimeMs > fs.statSync(cachedIndex).mtimeMs);
+    if (needsCopy) {
+      fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+    }
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -245,10 +225,11 @@ function buildVolumeMounts(
   return mounts;
 }
 
-function buildContainerArgs(
+async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
-): string[] {
+  agentIdentifier?: string,
+): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
@@ -259,42 +240,18 @@ function buildContainerArgs(
     args.push('-e', `X_AUTH_TOKEN=${X_AUTH_TOKEN}`);
   }
 
-  // Route API traffic through the credential proxy (containers never see real secrets)
-  args.push(
-    '-e',
-    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
-  );
-  if (ANTHROPIC_BASE_URL) {
-    args.push('-e', `NANOCLAW_UPSTREAM_BASE_URL=${ANTHROPIC_BASE_URL}`);
-  }
-
-  // Mirror the host's auth method with a placeholder value.
-  // API key mode: SDK sends x-api-key, proxy replaces with real key.
-  // Auth token mode: SDK sends Authorization: Bearer, proxy replaces with the
-  // real token. ANTHROPIC_API_KEY must stay explicitly empty for OpenRouter.
-  // OAuth mode:   SDK exchanges placeholder token for temp API key,
-  //               proxy injects real OAuth token on that exchange request.
-  const authMode = detectAuthMode();
-  if (authMode === 'api-key') {
-    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
-  } else if (authMode === 'auth-token') {
-    args.push('-e', 'ANTHROPIC_API_KEY=');
-    args.push('-e', 'ANTHROPIC_AUTH_TOKEN=placeholder');
+  // OneCLI gateway handles credential injection — containers never see real secrets.
+  // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
+  const onecliApplied = await onecli.applyContainerConfig(args, {
+    addHostMapping: false, // Nanoclaw already handles host gateway
+    agent: agentIdentifier,
+  });
+  if (onecliApplied) {
+    logger.info({ containerName }, 'OneCLI gateway config applied');
   } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
-  }
-
-  // Forward custom model IDs so the container agent uses the configured models
-  if (ANTHROPIC_DEFAULT_MODEL) {
-    args.push(
-      '-e',
-      `ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_MODEL}`,
-    );
-  }
-  if (ANTHROPIC_DEFAULT_HAIKU_MODEL) {
-    args.push(
-      '-e',
-      `ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL}`,
+    logger.warn(
+      { containerName },
+      'OneCLI gateway not reachable — container will have no credentials',
     );
   }
 
@@ -338,7 +295,15 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  // Main group uses the default OneCLI agent; others use their own agent.
+  const agentIdentifier = input.isMain
+    ? undefined
+    : group.folder.toLowerCase().replace(/_/g, '-');
+  const containerArgs = await buildContainerArgs(
+    mounts,
+    containerName,
+    agentIdentifier,
+  );
 
   logger.debug(
     {
@@ -385,7 +350,6 @@ export async function runContainerAgent(
     let parseBuffer = '';
     let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
-    let lastStreamedOutput: ContainerOutput | undefined;
 
     container.stdout.on('data', (data) => {
       const chunk = data.toString();
@@ -420,7 +384,6 @@ export async function runContainerAgent(
 
           try {
             const parsed: ContainerOutput = JSON.parse(jsonStr);
-            lastStreamedOutput = parsed;
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
             }
@@ -475,15 +438,15 @@ export async function runContainerAgent(
         { group: group.name, containerName },
         'Container timeout, stopping gracefully',
       );
-      exec(stopContainer(containerName), { timeout: 15000 }, (err) => {
-        if (err) {
-          logger.warn(
-            { group: group.name, containerName, err },
-            'Graceful stop failed, force killing',
-          );
-          container.kill('SIGKILL');
-        }
-      });
+      try {
+        stopContainer(containerName);
+      } catch (err) {
+        logger.warn(
+          { group: group.name, containerName, err },
+          'Graceful stop failed, force killing',
+        );
+        container.kill('SIGKILL');
+      }
     };
 
     let timeout = setTimeout(killOnTimeout, timeoutMs);
@@ -637,25 +600,6 @@ export async function runContainerAgent(
       // Streaming mode: wait for output chain to settle, return completion marker
       if (onOutput) {
         outputChain.then(() => {
-          if (lastStreamedOutput?.status === 'error') {
-            logger.error(
-              {
-                group: group.name,
-                duration,
-                newSessionId,
-                error: lastStreamedOutput.error,
-              },
-              'Container completed after streamed error',
-            );
-            resolve({
-              status: 'error',
-              result: lastStreamedOutput.result,
-              newSessionId,
-              error: lastStreamedOutput.error,
-            });
-            return;
-          }
-
           logger.info(
             { group: group.name, duration, newSessionId },
             'Container completed (streaming mode)',
@@ -740,6 +684,7 @@ export function writeTasksSnapshot(
     id: string;
     groupFolder: string;
     prompt: string;
+    script?: string | null;
     schedule_type: string;
     schedule_value: string;
     status: string;
@@ -762,7 +707,6 @@ export function writeTasksSnapshot(
 export interface AvailableGroup {
   jid: string;
   name: string;
-  channel: string;
   lastActivity: string;
   isRegistered: boolean;
 }

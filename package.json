@@ -1,6 +1,6 @@
 {
   "name": "nanoclaw",
-  "version": "1.2.21",
+  "version": "1.2.42",
   "description": "Personal Claude assistant. Lightweight, secure, customizable.",
   "type": "module",
   "main": "dist/index.js",
@@ -22,9 +22,10 @@
   },
   "dependencies": {
     "@adiwajshing/keyed-db": "^0.2.4",
+    "@onecli-sh/sdk": "^0.2.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
-    "better-sqlite3": "^11.8.1",
-    "cron-parser": "^5.5.0",
+    "better-sqlite3": "11.10.0",
+    "cron-parser": "5.5.0",
     "dotenv-cli": "^11.0.0",
     "grammy": "^1.39.3",
     "link-preview-js": "^3.2.0",

@@ -29,16 +29,14 @@ export function readEnvFile(keys: string[]): Record<string, string> {
     const key = trimmed.slice(0, eqIdx).trim();
     if (!wanted.has(key)) continue;
     let value = trimmed.slice(eqIdx + 1).trim();
-    if (value.startsWith('"') || value.startsWith("'")) {
-      const quote = value[0];
-      const closeIdx = value.indexOf(quote, 1);
-      value = closeIdx !== -1 ? value.slice(1, closeIdx) : value.slice(1);
-    } else {
-      // Strip inline comments for unquoted values
-      const commentIdx = value.indexOf(' #');
-      if (commentIdx !== -1) value = value.slice(0, commentIdx).trim();
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
     }
-    result[key] = value;
+    if (value) result[key] = value;
   }
 
   return result;

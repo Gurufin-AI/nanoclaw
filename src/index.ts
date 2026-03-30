@@ -5,15 +5,20 @@ import dns from 'dns';
 // Force IPv4 preferentially for stable connections to Telegram
 dns.setDefaultResultOrder('ipv4first');
 
+import { OneCLI } from '@onecli-sh/sdk';
+
 import {
+  ANTHROPIC_BASE_URL,
   ASSISTANT_NAME,
-  CREDENTIAL_PROXY_PORT,
+  DEFAULT_TRIGGER,
+  getTriggerPattern,
+  GROUPS_DIR,
   IDLE_TIMEOUT,
+  MAX_MESSAGES_PER_PROMPT,
+  ONECLI_URL,
   POLL_INTERVAL,
   TIMEZONE,
-  TRIGGER_PATTERN,
 } from './config.js';
-import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
 import {
   getChannelFactory,
@@ -29,7 +34,6 @@ import { augmentMessagesWithAttachmentContext } from './attachments.js';
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
-  PROXY_BIND_HOST,
 } from './container-runtime.js';
 import {
   getAllChats,
@@ -37,6 +41,7 @@ import {
   getAllSessions,
   getAllTasks,
   getMessagesSince,
+  getLastBotMessageTimestamp,
   getNewMessages,
   getRouterState,
   initDatabase,
@@ -75,7 +80,6 @@ import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import { sanitizeOutboundText } from './output-sanitization.js';
 import { processVision } from './vision.js';
-import { ANTHROPIC_BASE_URL } from './config.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -88,6 +92,27 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+
+const onecli = new OneCLI({ url: ONECLI_URL });
+
+function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
+  if (group.isMain) return;
+  const identifier = group.folder.toLowerCase().replace(/_/g, '-');
+  onecli.ensureAgent({ name: group.name, identifier }).then(
+    (res) => {
+      logger.info(
+        { jid, identifier, created: res.created },
+        'OneCLI agent ensured',
+      );
+    },
+    (err) => {
+      logger.debug(
+        { jid, identifier, err: String(err) },
+        'OneCLI agent ensure skipped',
+      );
+    },
+  );
+}
 
 function getReducedBatchSize(currentSize: number): number {
   if (currentSize <= 1) return 0;
@@ -155,6 +180,27 @@ function logStructuredAttachments(
     },
     'Structured media attachments included in prompt',
   );
+}
+
+/**
+ * Return the message cursor for a group, recovering from the last bot reply
+ * if lastAgentTimestamp is missing (new group, corrupted state, restart).
+ */
+function getOrRecoverCursor(chatJid: string): string {
+  const existing = lastAgentTimestamp[chatJid];
+  if (existing) return existing;
+
+  const botTs = getLastBotMessageTimestamp(chatJid, ASSISTANT_NAME);
+  if (botTs) {
+    logger.info(
+      { chatJid, recoveredFrom: botTs },
+      'Recovered message cursor from last bot reply',
+    );
+    lastAgentTimestamp[chatJid] = botTs;
+    saveState();
+    return botTs;
+  }
+  return '';
 }
 
 function loadState(): void {
@@ -245,7 +291,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const isMainGroup = group.isMain === true;
 
-  const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
+  const sinceTimestamp = getOrRecoverCursor(chatJid);
   const missedMessages = getMessagesSince(
     chatJid,
     sinceTimestamp,
@@ -261,7 +307,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     const allowlistCfg = loadSenderAllowlist();
     const hasTrigger = missedMessages.some(
       (m) =>
-        TRIGGER_PATTERN.test(m.content.trim()) &&
+        getTriggerPattern(group.trigger).test(m.content.trim()) &&
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
     );
     if (!hasTrigger) return true;
@@ -648,7 +694,7 @@ async function startMessageLoop(): Promise<void> {
             const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some(
               (m) =>
-                TRIGGER_PATTERN.test(m.content.trim()) &&
+                getTriggerPattern(group.trigger).test(m.content.trim()) &&
                 (m.is_from_me ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
             );
@@ -757,16 +803,10 @@ async function main(): Promise<void> {
   loadState();
   restoreRemoteControl();
 
-  // Start credential proxy (containers route API calls through this)
-  const proxyServer = await startCredentialProxy(
-    CREDENTIAL_PROXY_PORT,
-    PROXY_BIND_HOST,
-  );
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
-    proxyServer.close();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);

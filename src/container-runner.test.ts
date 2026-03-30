@@ -8,16 +8,14 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 // Mock config
 vi.mock('./config.js', () => ({
-  ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
   CONTAINER_TIMEOUT: 1800000, // 30min
-  CREDENTIAL_PROXY_PORT: 3001,
   DATA_DIR: '/tmp/nanoclaw-test-data',
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',
   IDLE_TIMEOUT: 1800000, // 30min
+  ONECLI_URL: 'http://localhost:10254',
   TIMEZONE: 'America/Los_Angeles',
-  X_AUTH_TOKEN: '',
 }));
 
 // Mock logger
@@ -28,19 +26,6 @@ vi.mock('./logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
-}));
-
-vi.mock('./container-runtime.js', () => ({
-  CONTAINER_HOST_GATEWAY: '127.0.0.1',
-  CONTAINER_RUNTIME_BIN: 'docker',
-  hostGatewayArgs: vi.fn(() => []),
-  readonlyMountArgs: vi.fn((hostPath: string, containerPath: string) => [
-    '-v',
-    `${hostPath}:${containerPath}:ro`,
-  ]),
-  stopContainer: vi.fn(
-    (containerName: string) => `docker stop ${containerName}`,
-  ),
 }));
 
 // Mock fs
@@ -66,12 +51,23 @@ vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
 }));
 
-const { detectAuthModeMock } = vi.hoisted(() => ({
-  detectAuthModeMock: vi.fn(() => 'oauth'),
+// Mock container-runtime
+vi.mock('./container-runtime.js', () => ({
+  CONTAINER_RUNTIME_BIN: 'docker',
+  hostGatewayArgs: () => [],
+  readonlyMountArgs: (h: string, c: string) => ['-v', `${h}:${c}:ro`],
+  stopContainer: vi.fn(),
 }));
 
-vi.mock('./credential-proxy.js', () => ({
-  detectAuthMode: detectAuthModeMock,
+// Mock OneCLI SDK
+vi.mock('@onecli-sh/sdk', () => ({
+  OneCLI: class {
+    applyContainerConfig = vi.fn().mockResolvedValue(true);
+    createAgent = vi.fn().mockResolvedValue({ id: 'test' });
+    ensureAgent = vi
+      .fn()
+      .mockResolvedValue({ name: 'test', identifier: 'test', created: true });
+  },
 }));
 
 // Create a controllable fake ChildProcess
@@ -111,13 +107,11 @@ vi.mock('child_process', async () => {
 
 import { runContainerAgent, ContainerOutput } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
-import { spawn } from 'child_process';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
   folder: 'test-group',
   trigger: '@Andy',
-  channel: 'whatsapp',
   added_at: new Date().toISOString(),
 };
 
@@ -125,7 +119,6 @@ const testInput = {
   prompt: 'Hello',
   groupFolder: 'test-group',
   chatJid: 'test@g.us',
-  channel: 'whatsapp',
   isMain: false,
 };
 
@@ -141,8 +134,6 @@ describe('container-runner timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeProc = createFakeProcess();
-    detectAuthModeMock.mockReset();
-    detectAuthModeMock.mockReturnValue('oauth');
   });
 
   afterEach(() => {
@@ -234,71 +225,5 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
-  });
-
-  it('normal exit after streamed error resolves as error', async () => {
-    const onOutput = vi.fn(async () => {});
-    const resultPromise = runContainerAgent(
-      testGroup,
-      testInput,
-      () => {},
-      onOutput,
-    );
-
-    emitOutputMarker(fakeProc, {
-      status: 'error',
-      result: null,
-      error: 'AxiosError: Request failed with status code 401',
-      newSessionId: 'session-789',
-    });
-
-    await vi.advanceTimersByTimeAsync(10);
-    fakeProc.emit('close', 0);
-    await vi.advanceTimersByTimeAsync(10);
-
-    const result = await resultPromise;
-    expect(result.status).toBe('error');
-    expect(result.error).toContain('401');
-    expect(result.newSessionId).toBe('session-789');
-    expect(onOutput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'error',
-        error: 'AxiosError: Request failed with status code 401',
-      }),
-    );
-  });
-
-  it('uses ANTHROPIC_AUTH_TOKEN placeholder flow for auth-token mode', async () => {
-    detectAuthModeMock.mockReturnValue('auth-token');
-
-    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
-
-    const spawnMock = vi.mocked(spawn);
-    const [, args] = spawnMock.mock.calls.at(-1)!;
-    const envArgs = args.filter(
-      (arg, index, list) => list[index - 1] === '-e' && typeof arg === 'string',
-    );
-
-    expect(envArgs).toContain('ANTHROPIC_API_KEY=');
-    expect(envArgs).toContain('ANTHROPIC_AUTH_TOKEN=placeholder');
-    expect(envArgs).toContain(
-      'NANOCLAW_UPSTREAM_BASE_URL=https://openrouter.ai/api',
-    );
-    expect(envArgs).not.toContain('ANTHROPIC_API_KEY=placeholder');
-
-    emitOutputMarker(fakeProc, {
-      status: 'success',
-      result: 'Done',
-      newSessionId: 'session-auth-token',
-    });
-
-    await vi.advanceTimersByTimeAsync(10);
-    fakeProc.emit('close', 0);
-    await vi.advanceTimersByTimeAsync(10);
-
-    await expect(resultPromise).resolves.toMatchObject({
-      status: 'success',
-      newSessionId: 'session-auth-token',
-    });
   });
 });
