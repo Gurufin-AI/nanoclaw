@@ -647,9 +647,11 @@ async function main(): Promise<void> {
   }
 
   // Ensure model overrides are reflected in process.env so the SDK's internal
-  // Haiku/compact calls (which read process.env directly) respect our overrides.
-  // The SDK resolves its small/fast model via ANTHROPIC_SMALL_FAST_MODEL first,
-  // falling back to ANTHROPIC_DEFAULT_HAIKU_MODEL, so we must set both.
+  // calls (which read process.env directly, not the env option) respect our overrides.
+  // - ANTHROPIC_SMALL_FAST_MODEL: SDK's primary env var for haiku/compact calls
+  // - ANTHROPIC_DEFAULT_HAIKU_MODEL: fallback haiku env var
+  // - ANTHROPIC_DEFAULT_OPUS_MODEL: prevents SDK from escalating to opus when it
+  //   detects a Max/Team subscription (KG() returns NV() for those tiers)
   const haikuOverride = sdkEnv['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
   const sonnetOverride = sdkEnv['ANTHROPIC_DEFAULT_SONNET_MODEL'];
   if (haikuOverride) {
@@ -658,6 +660,10 @@ async function main(): Promise<void> {
   }
   if (sonnetOverride) {
     process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = sonnetOverride;
+    // Also override opus: when the SDK detects a Max/Team subscription it calls
+    // KG() which returns NV() (opus). Pinning ANTHROPIC_DEFAULT_OPUS_MODEL to
+    // the same free model prevents unexpected opus billing.
+    process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = sonnetOverride;
   }
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
