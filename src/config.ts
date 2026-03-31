@@ -97,21 +97,16 @@ function resolveConfigTimezone(): string {
 export const TIMEZONE = resolveConfigTimezone();
 
 // Telegram configuration (skill/add-telegram)
-export const TELEGRAM_BOT_TOKEN =
-  process.env.TELEGRAM_BOT_TOKEN || '';
-export const TELEGRAM_ONLY =
-  process.env.TELEGRAM_ONLY === 'true';
+export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+export const TELEGRAM_ONLY = process.env.TELEGRAM_ONLY === 'true';
 
 // Anthropic / Multimodal configuration (used by vision feature)
-export const ANTHROPIC_BASE_URL =
-  process.env.ANTHROPIC_BASE_URL || '';
-export const ANTHROPIC_API_KEY =
-  process.env.ANTHROPIC_API_KEY || '';
+export const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || '';
+export const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 export const ANTHROPIC_DEFAULT_MODEL =
   process.env.ANTHROPIC_DEFAULT_SONNET_MODEL || '';
 export const ANTHROPIC_DEFAULT_HAIKU_MODEL =
   process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL || '';
 
 // X (Twitter) auth token for cookie injection (no X API key required)
-export const X_AUTH_TOKEN =
-  process.env.X_AUTH_TOKEN || '';
+export const X_AUTH_TOKEN = process.env.X_AUTH_TOKEN || '';

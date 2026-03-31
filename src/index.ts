@@ -803,7 +803,6 @@ async function main(): Promise<void> {
   loadState();
   restoreRemoteControl();
 
-
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
