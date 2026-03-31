@@ -648,10 +648,13 @@ async function main(): Promise<void> {
 
   // Ensure model overrides are reflected in process.env so the SDK's internal
   // Haiku/compact calls (which read process.env directly) respect our overrides.
+  // The SDK resolves its small/fast model via ANTHROPIC_SMALL_FAST_MODEL first,
+  // falling back to ANTHROPIC_DEFAULT_HAIKU_MODEL, so we must set both.
   const haikuOverride = sdkEnv['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
   const sonnetOverride = sdkEnv['ANTHROPIC_DEFAULT_SONNET_MODEL'];
   if (haikuOverride) {
     process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = haikuOverride;
+    process.env['ANTHROPIC_SMALL_FAST_MODEL'] = haikuOverride;
   }
   if (sonnetOverride) {
     process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = sonnetOverride;
