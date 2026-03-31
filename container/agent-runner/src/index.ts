@@ -646,6 +646,17 @@ async function main(): Promise<void> {
     log(`Compatibility proxy listening at ${openAiCompatProxy.baseUrl}`);
   }
 
+  // Ensure model overrides are reflected in process.env so the SDK's internal
+  // Haiku/compact calls (which read process.env directly) respect our overrides.
+  const haikuOverride = sdkEnv['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+  const sonnetOverride = sdkEnv['ANTHROPIC_DEFAULT_SONNET_MODEL'];
+  if (haikuOverride) {
+    process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = haikuOverride;
+  }
+  if (sonnetOverride) {
+    process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = sonnetOverride;
+  }
+
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
