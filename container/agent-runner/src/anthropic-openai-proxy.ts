@@ -246,12 +246,10 @@ export function anthropicRequestToOpenAiChat(
   if (request.tool_choice?.type === 'any') {
     toolChoice = 'required';
   } else if (request.tool_choice?.type === 'tool') {
-    toolChoice = {
-      type: 'function',
-      function: {
-        name: request.tool_choice.name,
-      },
-    };
+    // llama.cpp (and other local servers) only accept string values for tool_choice.
+    // The full OpenAI {"type":"function","function":{"name":"..."}} object form is not
+    // universally supported, so fall back to "required" which forces a tool call.
+    toolChoice = 'required';
   } else if (request.tool_choice?.type === 'none') {
     toolChoice = 'none';
   } else if (request.tool_choice?.type === 'auto') {
