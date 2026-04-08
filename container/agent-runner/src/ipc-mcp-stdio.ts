@@ -22,6 +22,53 @@ const channel = process.env.NANOCLAW_CHANNEL || 'unknown';
 const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
 
+// Search DuckDuckGo and return top result URLs+titles
+async function ddgSearch(query: string): Promise<Array<{ url: string; title: string }>> {
+  const qs = new URLSearchParams({ q: query, kl: 'kr-kr', ia: 'web' });
+  const resp = await fetch(`https://html.duckduckgo.com/html/?${qs.toString()}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'text/html',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+    },
+  });
+  if (!resp.ok) throw new Error(`DDG search returned ${resp.status}`);
+  const html = await resp.text();
+
+  // DDG HTML results encode the actual URL in uddg= query param
+  const results: Array<{ url: string; title: string }> = [];
+  const linkRe = /href="\/\/duckduckgo\.com\/l\/\?uddg=([^&"]+)[^"]*"[^>]*>([^<]*)</g;
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(html)) !== null && results.length < 5) {
+    try {
+      const url = decodeURIComponent(m[1]);
+      const title = m[2].trim();
+      if (url.startsWith('http')) results.push({ url, title });
+    } catch {}
+  }
+  return results;
+}
+
+// Fetch a URL and return plain text (strips HTML tags, truncated)
+async function fetchPlainText(url: string, maxChars = 5000): Promise<string> {
+  const resp = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'text/html',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+    },
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${url}`);
+  const html = await resp.text();
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.slice(0, maxChars);
+}
+
 function writeIpcFile(dir: string, data: object): string {
   fs.mkdirSync(dir, { recursive: true });
 
@@ -507,6 +554,43 @@ server.tool(
     writeIpcFile(TASKS_DIR, { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() });
     const result = await waitForXResult(requestId);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  },
+);
+
+server.tool(
+  'web_search',
+  'Search the web using DuckDuckGo and return the content of the top result. Provide a natural language query — do NOT construct URLs yourself.',
+  {
+    query: z.string().describe('Search query in natural language (Korean or English)'),
+    site: z.string().optional().describe('Restrict to a specific site, e.g. "kyobobook.co.kr"'),
+  },
+  async (args) => {
+    try {
+      const fullQuery = args.site ? `${args.query} site:${args.site}` : args.query;
+      const results = await ddgSearch(fullQuery);
+
+      if (results.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No results found for: ${fullQuery}` }] };
+      }
+
+      let output = `Search results for: ${fullQuery}\n\n`;
+      output += results.map((r, i) => `${i + 1}. ${r.title || '(no title)'}\n   ${r.url}`).join('\n\n');
+
+      // Fetch content from the top result
+      try {
+        const content = await fetchPlainText(results[0].url);
+        output += `\n\n--- Page content: ${results[0].url} ---\n${content}`;
+      } catch (err) {
+        output += `\n\n[Could not fetch page content: ${err instanceof Error ? err.message : String(err)}]`;
+      }
+
+      return { content: [{ type: 'text' as const, text: output }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Search failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
   },
 );
 
