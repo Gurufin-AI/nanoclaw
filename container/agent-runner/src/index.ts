@@ -508,18 +508,20 @@ async function runQuery(
 
       // Deduplicate: remove any chunk whose text is contained in another chunk.
       // This handles nemotron's re-emission of the first chunk after the full response.
-      // Then sort by seq DESCENDING — nemotron delivers chunks in reverse logical
-      // order (tail arrives first at lower seq, head arrives later at higher seq),
-      // so highest seq = earliest logical position = must come first in output.
       const deduped = assistantChunks.filter(
         ({ text }, i) =>
           !assistantChunks.some(({ text: other }, j) => j !== i && other.includes(text)),
       );
-      deduped.sort((a, b) => b.seq - a.seq);
+      // Nemotron (OpenRouter) delivers chunks in reverse logical order: the tail
+      // arrives first (low seq) and the head arrives last (high seq). Sort descending
+      // so the head comes first. For all other models (Claude, etc.) chunks arrive in
+      // natural order — sort ascending to preserve correct ordering.
+      const isNemotron = typeof modelId === 'string' && modelId.toLowerCase().includes('nemotron');
+      deduped.sort((a, b) => isNemotron ? b.seq - a.seq : a.seq - b.seq);
       const assembledText = deduped.length > 0
         ? deduped.map((c) => c.text).join('\n').trim() || null
         : null;
-      log(`Assembled ${assistantChunks.length} chunk(s) → ${deduped.length} after dedup (desc order), text length=${assembledText?.length ?? 0}`);
+      log(`Assembled ${assistantChunks.length} chunk(s) → ${deduped.length} after dedup (${isNemotron ? 'desc' : 'asc'} order), text length=${assembledText?.length ?? 0}`);
 
       const outboundText = assembledText
         || (isPlaceholderResult(textResult) ? null : textResult)
