@@ -253,7 +253,9 @@ describe('container-runner timeout behavior', () => {
     expect(spawnMock).toHaveBeenCalled();
     const [, containerArgs] = spawnMock.mock.calls.at(-1)!;
     expect(containerArgs).toContain('-e');
-    expect(containerArgs).toContain('ANTHROPIC_BASE_URL=http://host.docker.internal:8080');
+    expect(containerArgs).toContain(
+      'ANTHROPIC_BASE_URL=http://host.docker.internal:8080',
+    );
     expect(containerArgs).toContain('-e');
     expect(containerArgs).toContain('ANTHROPIC_API_KEY=placeholder');
     expect(containerArgs).toContain('-e');
