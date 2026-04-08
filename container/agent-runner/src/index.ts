@@ -443,11 +443,13 @@ async function runQuery(
       resume: sessionId,
       resumeSessionAt: resumeAt,
       systemPrompt,
+      // Cap tool-call turns to prevent infinite retry loops (e.g. repeated
+      // WebSearch on empty results). 20 turns is generous for complex tasks.
+      maxTurns: 20,
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',
-        // WebSearch is an Anthropic-native tool; exclude it for third-party models
-        ...(modelId ? [] : ['WebSearch']),
+        'WebSearch',
         'WebFetch',
         'Task', 'TaskOutput', 'TaskStop',
         'TeamCreate', 'TeamDelete', 'SendMessage',
@@ -455,6 +457,10 @@ async function runQuery(
         'NotebookEdit',
         'mcp__nanoclaw__*'
       ],
+      // WebSearch is an Anthropic-native built-in; allowedTools alone cannot
+      // exclude it. Explicitly disallow it for third-party models (llama.cpp,
+      // OpenRouter custom) that don't have native search capability.
+      disallowedTools: modelId ? ['WebSearch'] : [],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
