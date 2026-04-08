@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import { spawn } from 'child_process';
 
 // Sentinel markers must match container-runner.ts
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -8,6 +9,10 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 // Mock config
 vi.mock('./config.js', () => ({
+  ANTHROPIC_API_KEY: 'placeholder',
+  ANTHROPIC_BASE_URL: 'http://host.docker.internal:8080',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: 'unsloth/Qwen3.5-9B-fast',
+  ANTHROPIC_DEFAULT_MODEL: 'unsloth/Qwen3.5-9B',
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
   CONTAINER_TIMEOUT: 1800000, // 30min
@@ -16,6 +21,7 @@ vi.mock('./config.js', () => ({
   IDLE_TIMEOUT: 1800000, // 30min
   ONECLI_URL: 'http://localhost:10254',
   TIMEZONE: 'America/Los_Angeles',
+  X_AUTH_TOKEN: '',
 }));
 
 // Mock logger
@@ -62,11 +68,15 @@ vi.mock('./container-runtime.js', () => ({
 // Mock OneCLI SDK
 vi.mock('@onecli-sh/sdk', () => ({
   OneCLI: class {
-    applyContainerConfig = vi.fn().mockResolvedValue(true);
-    createAgent = vi.fn().mockResolvedValue({ id: 'test' });
-    ensureAgent = vi
-      .fn()
-      .mockResolvedValue({ name: 'test', identifier: 'test', created: true });
+    async applyContainerConfig() {
+      return true;
+    }
+    async createAgent() {
+      return { id: 'test' };
+    }
+    async ensureAgent() {
+      return { name: 'test', identifier: 'test', created: true };
+    }
   },
 }));
 
@@ -113,6 +123,7 @@ const testGroup: RegisteredGroup = {
   folder: 'test-group',
   trigger: '@Andy',
   added_at: new Date().toISOString(),
+  channel: 'whatsapp',
 };
 
 const testInput = {
@@ -133,6 +144,7 @@ function emitOutputMarker(
 describe('container-runner timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     fakeProc = createFakeProcess();
   });
 
@@ -225,5 +237,42 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+
+  it('falls back to env-backed model settings when OneCLI config is unavailable', async () => {
+    const { OneCLI } = await import('@onecli-sh/sdk');
+    const applyContainerConfig = vi
+      .spyOn(OneCLI.prototype, 'applyContainerConfig')
+      .mockResolvedValue(false);
+
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    const spawnMock = vi.mocked(spawn);
+    expect(spawnMock).toHaveBeenCalled();
+    const [, containerArgs] = spawnMock.mock.calls.at(-1)!;
+    expect(containerArgs).toContain('-e');
+    expect(containerArgs).toContain('ANTHROPIC_BASE_URL=http://host.docker.internal:8080');
+    expect(containerArgs).toContain('-e');
+    expect(containerArgs).toContain('ANTHROPIC_API_KEY=placeholder');
+    expect(containerArgs).toContain('-e');
+    expect(containerArgs).toContain(
+      'ANTHROPIC_DEFAULT_SONNET_MODEL=unsloth/Qwen3.5-9B',
+    );
+    expect(containerArgs).toContain('-e');
+    expect(containerArgs).toContain(
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL=unsloth/Qwen3.5-9B-fast',
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'Done',
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await resultPromise;
+
+    applyContainerConfig.mockRestore();
   });
 });

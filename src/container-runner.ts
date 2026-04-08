@@ -7,6 +7,10 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  ANTHROPIC_API_KEY,
+  ANTHROPIC_BASE_URL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  ANTHROPIC_DEFAULT_MODEL,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -253,6 +257,22 @@ async function buildContainerArgs(
       { containerName },
       'OneCLI gateway not reachable — container will have no credentials',
     );
+
+    // Fallback for local-model setups: if OneCLI is unavailable, still pass
+    // through explicit .env-backed LLM settings so the SDK does not fall back
+    // to interactive Claude auth (/login).
+    if (ANTHROPIC_BASE_URL) {
+      args.push('-e', `ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}`);
+    }
+    if (ANTHROPIC_API_KEY) {
+      args.push('-e', `ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}`);
+    }
+    if (ANTHROPIC_DEFAULT_MODEL) {
+      args.push('-e', `ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_MODEL}`);
+    }
+    if (ANTHROPIC_DEFAULT_HAIKU_MODEL) {
+      args.push('-e', `ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL}`);
+    }
   }
 
   // Runtime-specific args for host gateway resolution
