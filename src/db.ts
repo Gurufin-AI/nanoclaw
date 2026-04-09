@@ -196,6 +196,17 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* column already exists */
   }
+
+  // Add reply context columns if they don't exist (migration for existing DBs)
+  try {
+    database.exec(`ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT`);
+    database.exec(
+      `ALTER TABLE messages ADD COLUMN reply_to_message_content TEXT`,
+    );
+    database.exec(`ALTER TABLE messages ADD COLUMN reply_to_sender_name TEXT`);
+  } catch {
+    /* columns already exist */
+  }
 }
 
 export function initDatabase(): void {
@@ -324,7 +335,7 @@ export function setLastGroupSync(): void {
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, media_kind, media_name, media_file, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, media_kind, media_name, media_file, image_file, reply_to_message_id, reply_to_message_content, reply_to_sender_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -338,6 +349,9 @@ export function storeMessage(msg: NewMessage): void {
     msg.media_name || null,
     msg.media_file || null,
     msg.image_file || null,
+    msg.reply_to_message_id ?? null,
+    msg.reply_to_message_content ?? null,
+    msg.reply_to_sender_name ?? null,
   );
 }
 
@@ -390,7 +404,7 @@ export function getNewMessages(
   // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
     SELECT * FROM (
-      SELECT rowid AS _rowid, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file
+      SELECT rowid AS _rowid, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file, reply_to_message_id, reply_to_message_content, reply_to_sender_name
       FROM messages
       WHERE timestamp > ? AND chat_jid IN (${placeholders})
         AND is_bot_message = 0 AND content NOT LIKE ?
@@ -424,7 +438,7 @@ export function getMessagesSince(
   // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
     SELECT * FROM (
-      SELECT rowid AS _rowid, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file
+      SELECT rowid AS _rowid, id, chat_jid, sender, sender_name, content, timestamp, is_from_me, media_kind, media_name, media_file, image_file, reply_to_message_id, reply_to_message_content, reply_to_sender_name
       FROM messages
       WHERE chat_jid = ? AND timestamp > ?
         AND is_bot_message = 0 AND content NOT LIKE ?

@@ -29,8 +29,14 @@ export function formatMessages(
       attrs.push(`container_media_file="${escapeXml(containerMediaFile)}"`);
     }
     if (m.image_file) attrs.push(`image_file="${escapeXml(m.image_file)}"`);
+    if (m.reply_to_message_id)
+      attrs.push(`reply_to="${escapeXml(m.reply_to_message_id)}"`);
+    const replySnippet =
+      m.reply_to_message_content && m.reply_to_sender_name
+        ? `\n  <quoted_message from="${escapeXml(m.reply_to_sender_name)}">${escapeXml(m.reply_to_message_content)}</quoted_message>`
+        : '';
 
-    return `<message ${attrs.join(' ')}>${escapeXml(m.content)}</message>`;
+    return `<message ${attrs.join(' ')}>${replySnippet}${escapeXml(m.content)}</message>`;
   });
 
   const header = `<context timezone="${escapeXml(timezone)}" />\n`;
