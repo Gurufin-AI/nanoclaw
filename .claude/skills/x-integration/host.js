@@ -10,7 +10,7 @@ import path from 'path';
 import pino from 'pino';
 const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
-    transport: { target: 'pino-pretty', options: { colorize: true } }
+    transport: { target: 'pino-pretty', options: { colorize: true } },
 });
 // Run a skill script as subprocess
 async function runScript(script, args) {
