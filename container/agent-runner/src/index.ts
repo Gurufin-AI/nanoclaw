@@ -55,6 +55,7 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  type?: 'progress' | 'result';
 }
 
 interface SessionEntry {
@@ -137,6 +138,30 @@ function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
   console.log(JSON.stringify(output));
   console.log(OUTPUT_END_MARKER);
+}
+
+function formatToolProgress(toolName: string, input: unknown): string | null {
+  const inp = input as Record<string, unknown>;
+  switch (toolName) {
+    case 'Bash':
+      return `⚙️ 명령 실행 중: \`${String(inp?.command ?? '').slice(0, 80)}\``;
+    case 'WebSearch':
+      return `🔍 검색 중: ${String(inp?.query ?? '')}`;
+    case 'WebFetch':
+      return `🌐 페이지 읽는 중...`;
+    case 'Read':
+      return `📖 파일 읽는 중: ${String(inp?.file_path ?? '')}`;
+    case 'Write':
+      return `✏️ 파일 작성 중: ${String(inp?.file_path ?? '')}`;
+    case 'Edit':
+      return `✏️ 파일 수정 중: ${String(inp?.file_path ?? '')}`;
+    case 'Task':
+      return `🤖 서브 에이전트 실행 중...`;
+    case 'mcp__nanoclaw__send_message':
+      return `📤 메시지 전송 중...`;
+    default:
+      return null;
+  }
 }
 
 function log(message: string): void {
@@ -549,6 +574,18 @@ async function runQuery(
       );
       if (assistantText) {
         assistantChunks.push({ seq: messageCount, text: assistantText });
+      }
+
+      // Emit progress for each tool_use block
+      const msgContent = (message as any).message?.content ?? [];
+      for (const block of msgContent) {
+        if (block.type === 'tool_use') {
+          const progressText = formatToolProgress(block.name, block.input);
+          if (progressText) {
+            log(`Progress: ${progressText}`);
+            writeOutput({ type: 'progress', status: 'success', result: progressText });
+          }
+        }
       }
     }
 

@@ -359,6 +359,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       prompt,
       chatJid,
       async (result) => {
+        // Progress notifications — send as system info, don't affect outputSentToUser
+        if (result.type === 'progress') {
+          if (result.result) {
+            logger.info(
+              { group: group.name },
+              `Agent progress: ${result.result}`,
+            );
+            await channel.sendMessage(chatJid, result.result).catch(() => {});
+          }
+          return;
+        }
+
         // Streaming output callback — called for each agent result
         if (result.result) {
           const raw =
