@@ -44,7 +44,14 @@ import {
   type ContainerState,
 } from './db/session-db.js';
 import { log } from './log.js';
-import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath, sessionDir } from './session-manager.js';
+import {
+  openInboundDb,
+  openOutboundDb,
+  openOutboundDbRw,
+  inboundDbPath,
+  heartbeatPath,
+  sessionDir,
+} from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
 import type { Session } from './types.js';
 
@@ -373,16 +380,16 @@ async function sweepXTasks(session: Session): Promise<void> {
       const { handleXIpc } = await import('../../.claude/skills/x-integration/host.js');
       const handled = await handleXIpc(task, session.agent_group_id, true, path.join(sessDir, '..', '..'));
       if (!handled) {
-        fs.writeFileSync(
-          resultPath,
-          JSON.stringify({ success: false, message: `Unknown X task type: ${task.type}` }),
-        );
+        fs.writeFileSync(resultPath, JSON.stringify({ success: false, message: `Unknown X task type: ${task.type}` }));
       }
     } catch (err) {
       log.warn('X task dispatch error', { requestId, err });
       fs.writeFileSync(
         resultPath,
-        JSON.stringify({ success: false, message: `X task failed: ${err instanceof Error ? err.message : String(err)}` }),
+        JSON.stringify({
+          success: false,
+          message: `X task failed: ${err instanceof Error ? err.message : String(err)}`,
+        }),
       );
     }
   }

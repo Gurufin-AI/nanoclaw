@@ -456,7 +456,9 @@ async function buildContainerArgs(
       const noProxy = `${url.hostname},${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
       args.push('-e', `NO_PROXY=${noProxy}`);
       args.push('-e', `no_proxy=${noProxy}`);
-    } catch { /* invalid URL, skip NO_PROXY */ }
+    } catch {
+      /* invalid URL, skip NO_PROXY */
+    }
   }
   if (process.env.ANTHROPIC_AUTH_TOKEN) {
     args.push('-e', `ANTHROPIC_AUTH_TOKEN=${process.env.ANTHROPIC_AUTH_TOKEN}`);
