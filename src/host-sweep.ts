@@ -28,6 +28,7 @@
  */
 import type Database from 'better-sqlite3';
 import fs from 'fs';
+import path from 'path';
 
 import { getActiveSessions } from './db/sessions.js';
 import { getAgentGroup } from './db/agent-groups.js';
@@ -43,7 +44,7 @@ import {
   type ContainerState,
 } from './db/session-db.js';
 import { log } from './log.js';
-import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
+import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath, sessionDir } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
 import type { Session } from './types.js';
 
@@ -136,6 +137,7 @@ async function sweep(): Promise<void> {
     const sessions = getActiveSessions();
     for (const session of sessions) {
       await sweepSession(session);
+      await sweepXTasks(session);
     }
   } catch (err) {
     log.error('Host sweep error', { err });
@@ -324,5 +326,64 @@ function resetStuckProcessingRows(
     log.warn('Failed to clear orphan processing claims', { sessionId: session.id, err });
   } finally {
     if (ownsDb) useDb?.close();
+  }
+}
+
+/**
+ * Sweep X (Twitter) IPC task files for a session.
+ *
+ * The x-tools MCP tool writes task files to /workspace/x_tasks/ (which maps
+ * to <sessionDir>/x_tasks/ on the host). This function reads those files,
+ * dispatches to the x-integration skill, and writes results to x_results/.
+ */
+async function sweepXTasks(session: Session): Promise<void> {
+  if (!process.env.X_AUTH_TOKEN) return;
+
+  const sessDir = sessionDir(session.agent_group_id, session.id);
+  const tasksDir = path.join(sessDir, 'x_tasks');
+  const resultsDir = path.join(sessDir, 'x_results');
+
+  let files: string[];
+  try {
+    files = fs.readdirSync(tasksDir).filter((f) => f.endsWith('.json'));
+  } catch {
+    return; // directory doesn't exist yet — skip
+  }
+
+  if (files.length === 0) return;
+
+  fs.mkdirSync(resultsDir, { recursive: true });
+
+  for (const file of files) {
+    const taskPath = path.join(tasksDir, file);
+    let task: Record<string, unknown>;
+    try {
+      task = JSON.parse(fs.readFileSync(taskPath, 'utf8')) as Record<string, unknown>;
+      fs.unlinkSync(taskPath);
+    } catch {
+      continue;
+    }
+
+    const requestId = task.requestId as string;
+    if (!requestId) continue;
+
+    const resultPath = path.join(resultsDir, `${requestId}.json`);
+    try {
+      // @ts-ignore — skill file outside rootDir, valid at runtime
+      const { handleXIpc } = await import('../../.claude/skills/x-integration/host.js');
+      const handled = await handleXIpc(task, session.agent_group_id, true, path.join(sessDir, '..', '..'));
+      if (!handled) {
+        fs.writeFileSync(
+          resultPath,
+          JSON.stringify({ success: false, message: `Unknown X task type: ${task.type}` }),
+        );
+      }
+    } catch (err) {
+      log.warn('X task dispatch error', { requestId, err });
+      fs.writeFileSync(
+        resultPath,
+        JSON.stringify({ success: false, message: `X task failed: ${err instanceof Error ? err.message : String(err)}` }),
+      );
+    }
   }
 }

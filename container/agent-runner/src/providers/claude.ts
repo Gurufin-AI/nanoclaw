@@ -4,6 +4,8 @@ import path from 'path';
 import { query as sdkQuery, type HookCallback, type PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 
 import { clearContainerToolInFlight, setContainerToolInFlight } from '../db/connection.js';
+import { writeMessageOut } from '../db/messages-out.js';
+import { getProgressRouting } from './progress-routing.js';
 import { registerProvider } from './provider-registry.js';
 import type { AgentProvider, AgentQuery, McpServerConfig, ProviderEvent, ProviderOptions, QueryInput } from './types.js';
 
@@ -151,6 +153,19 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   return lines.join('\n');
 }
 
+function formatToolProgress(toolName: string, input: Record<string, unknown>): string | null {
+  switch (toolName) {
+    case 'Bash': return `⚙️ 명령 실행 중: \`${String(input.command ?? '').slice(0, 60)}\``;
+    case 'WebSearch': return `🔍 검색 중: ${String(input.query ?? '')}`;
+    case 'WebFetch': return `🌐 가져오는 중: ${String(input.url ?? '')}`;
+    case 'Read': return `📖 읽는 중: ${String(input.file_path ?? '')}`;
+    case 'Write': return `✍️ 쓰는 중: ${String(input.file_path ?? '')}`;
+    case 'Edit': return `✏️ 수정 중: ${String(input.file_path ?? '')}`;
+    case 'Task': return `🤖 서브에이전트 실행 중...`;
+    default: return null;
+  }
+}
+
 /**
  * PreToolUse hook: record the current tool + its declared timeout so the host
  * sweep can widen its stuck tolerance while Bash is running a long-declared
@@ -174,6 +189,26 @@ const preToolUseHook: HookCallback = async (input) => {
     setContainerToolInFlight(toolName, declaredTimeoutMs);
   } catch (err) {
     log(`PreToolUse: failed to record container_state: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // Emit progress notification to channel if routing context is available.
+  const r = getProgressRouting();
+  if (r?.platformId && r?.channelType) {
+    const progressText = formatToolProgress(toolName, i.tool_input ?? {});
+    if (progressText) {
+      try {
+        writeMessageOut({
+          id: `progress-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          in_reply_to: r.inReplyTo,
+          kind: 'chat',
+          platform_id: r.platformId,
+          channel_type: r.channelType,
+          thread_id: r.threadId ?? null,
+          content: JSON.stringify({ text: progressText }),
+        });
+      } catch (err) {
+        log(`PreToolUse: failed to write progress: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
   return { continue: true };
 };

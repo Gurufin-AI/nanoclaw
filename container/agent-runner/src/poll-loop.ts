@@ -13,6 +13,7 @@ import {
   stripInternalTags,
   type RoutingContext,
 } from './formatter.js';
+import { setProgressRouting } from './providers/progress-routing.js';
 import type { AgentProvider, AgentQuery, ProviderEvent } from './providers/types.js';
 
 const POLL_INTERVAL_MS = 1000;
@@ -165,6 +166,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     log(`Processing ${keep.length} message(s), kinds: ${[...new Set(keep.map((m) => m.kind))].join(',')}`);
 
+    setProgressRouting(routing);
     const query = config.provider.query({
       prompt,
       continuation,
@@ -208,6 +210,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
       });
     } finally {
       clearCurrentInReplyTo();
+      setProgressRouting(null);
     }
 
     // Ensure completed even if processQuery ended without a result event
@@ -403,7 +406,7 @@ async function processQuery(
   return { continuation: queryContinuation };
 }
 
-function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
+function handleEvent(event: ProviderEvent, routing: RoutingContext): void {
   switch (event.type) {
     case 'init':
       log(`Session: ${event.continuation}`);
@@ -418,6 +421,17 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
       break;
     case 'progress':
       log(`Progress: ${event.message}`);
+      if (routing.platformId && routing.channelType) {
+        writeMessageOut({
+          id: generateId(),
+          in_reply_to: routing.inReplyTo,
+          kind: 'chat',
+          platform_id: routing.platformId,
+          channel_type: routing.channelType,
+          thread_id: routing.threadId ?? null,
+          content: JSON.stringify({ text: event.message }),
+        });
+      }
       break;
     case 'compacted':
       log(`Compacted: ${event.text}`);
