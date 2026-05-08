@@ -444,6 +444,30 @@ async function buildContainerArgs(
     args.push('-e', `X_AUTH_TOKEN=${process.env.X_AUTH_TOKEN}`);
   }
 
+  // Local LLM override — when ANTHROPIC_BASE_URL points to a non-Anthropic endpoint
+  // (local llama.cpp, LiteLLM proxy, etc.), forward it so the agent-runner hits the
+  // same endpoint as the host. Also add NO_PROXY so the OneCLI HTTPS_PROXY doesn't
+  // intercept requests to the local endpoint.
+  if (process.env.ANTHROPIC_BASE_URL) {
+    args.push('-e', `ANTHROPIC_BASE_URL=${process.env.ANTHROPIC_BASE_URL}`);
+    // Extract host from URL for NO_PROXY
+    try {
+      const url = new URL(process.env.ANTHROPIC_BASE_URL);
+      const noProxy = `${url.hostname},${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
+      args.push('-e', `NO_PROXY=${noProxy}`);
+      args.push('-e', `no_proxy=${noProxy}`);
+    } catch { /* invalid URL, skip NO_PROXY */ }
+  }
+  if (process.env.ANTHROPIC_AUTH_TOKEN) {
+    args.push('-e', `ANTHROPIC_AUTH_TOKEN=${process.env.ANTHROPIC_AUTH_TOKEN}`);
+  }
+  if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
+    args.push('-e', `ANTHROPIC_DEFAULT_SONNET_MODEL=${process.env.ANTHROPIC_DEFAULT_SONNET_MODEL}`);
+  }
+  if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
+    args.push('-e', `ANTHROPIC_DEFAULT_HAIKU_MODEL=${process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL}`);
+  }
+
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {
     for (const [key, value] of Object.entries(providerContribution.env)) {

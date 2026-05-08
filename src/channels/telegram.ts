@@ -362,6 +362,9 @@ function createAdapter(): ChannelAdapter {
       _threadId: string | null,
       message: OutboundMessage,
     ): Promise<string | undefined> {
+      // platform_id is stored as "telegram:<chat_id>" — strip the prefix for the API
+      const chatId = platformId.startsWith('telegram:') ? platformId.slice('telegram:'.length) : platformId;
+      platformId = chatId;
       const content = message.content as Record<string, unknown> | string | undefined;
       const text =
         typeof content === 'string'
@@ -390,8 +393,9 @@ function createAdapter(): ChannelAdapter {
 
     async setTyping(platformId: string): Promise<void> {
       if (!bot || !connected) return;
+      const chatId = platformId.startsWith('telegram:') ? platformId.slice('telegram:'.length) : platformId;
       try {
-        await bot.api.sendChatAction(platformId, 'typing');
+        await bot.api.sendChatAction(chatId, 'typing');
       } catch {
         // best-effort
       }
