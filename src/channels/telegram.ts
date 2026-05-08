@@ -16,21 +16,14 @@ import type { Message } from 'grammy/types';
 
 import { ASSISTANT_NAME, DATA_DIR } from '../config.js';
 import { log } from '../log.js';
-import type {
-  ChannelAdapter,
-  ChannelSetup,
-  InboundMessage,
-  OutboundFile,
-  OutboundMessage,
-} from './adapter.js';
+import type { ChannelAdapter, ChannelSetup, InboundMessage, OutboundFile, OutboundMessage } from './adapter.js';
 import { registerChannelAdapter } from './channel-registry.js';
 
 const MAX_MESSAGE_LENGTH = 4096;
 const POLLING_WATCHDOG_MS = 90_000;
 const POLLING_RETRY_DELAY_MS = 10_000;
 
-const TELEGRAM_BOT_TOKEN =
-  process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
 type TelegramMediaKind = 'photo' | 'video' | 'voice' | 'audio' | 'document';
 
@@ -89,11 +82,7 @@ async function downloadTelegramFile(
   }
 }
 
-function saveMediaToDisk(
-  buffer: Buffer,
-  ext: string,
-  prefix = 'tg',
-): string {
+function saveMediaToDisk(buffer: Buffer, ext: string, prefix = 'tg'): string {
   const mediaDir = path.join(DATA_DIR, 'telegram-media');
   fs.mkdirSync(mediaDir, { recursive: true });
   const filename = `${prefix}_${new Date().toISOString().replace(/[:.]/g, '-')}${ext}`;
@@ -153,10 +142,7 @@ function createAdapter(): ChannelAdapter {
   }
 
   async function sendFileTo(b: Bot, platformId: string, file: OutboundFile): Promise<void> {
-    await b.api.sendDocument(
-      platformId,
-      new InputFile(file.data, file.filename),
-    );
+    await b.api.sendDocument(platformId, new InputFile(file.data, file.filename));
   }
 
   function scheduleReconnect(config: ChannelSetup): void {
@@ -191,20 +177,17 @@ function createAdapter(): ChannelAdapter {
 
     bot.on('message', async (ctx) => {
       const msg: Message = ctx.message;
-      const chatId = msg.chat.id.toString();
+      const chatId = `telegram:${msg.chat.id}`;
       const chatType = msg.chat.type;
       const isGroup = chatType === 'group' || chatType === 'supergroup';
       const senderId = msg.from?.id?.toString() ?? 'unknown';
-      const senderName =
-        [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
+      const senderName = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
 
       // Detect bot mention
       const botUsername = bot?.botInfo?.username ?? '';
       const isMentioned =
         msg.entities?.some(
-          (e) =>
-            e.type === 'mention' &&
-            msg.text?.slice(e.offset + 1, e.offset + e.length) === botUsername,
+          (e) => e.type === 'mention' && msg.text?.slice(e.offset + 1, e.offset + e.length) === botUsername,
         ) ?? false;
 
       let text = msg.text || msg.caption || '';
@@ -258,14 +241,12 @@ function createAdapter(): ChannelAdapter {
       }
 
       // Chat name metadata
-      config.onMetadata(chatId, isGroup
-        ? (ctx.chat as { title?: string }).title
-        : senderName, isGroup);
+      config.onMetadata(chatId, isGroup ? (ctx.chat as { title?: string }).title : senderName, isGroup);
 
       const content = {
         text,
         sender: senderName,
-        senderId: `tg:${senderId}`,
+        senderId: `telegram:${senderId}`,
         media_kind: mediaKind,
         media_name: mediaName,
         media_file: mediaFile,
@@ -297,28 +278,30 @@ function createAdapter(): ChannelAdapter {
         void flushQueue();
       }, POLLING_WATCHDOG_MS);
 
-      bot!.start({
-        onStart: () => {
+      bot!
+        .start({
+          onStart: () => {
+            if (watchdogTimer) {
+              clearTimeout(watchdogTimer);
+              watchdogTimer = null;
+            }
+            connected = true;
+            log.info('Telegram channel connected');
+            resolve();
+            void flushQueue();
+          },
+        })
+        .catch((err) => {
           if (watchdogTimer) {
             clearTimeout(watchdogTimer);
             watchdogTimer = null;
           }
-          connected = true;
-          log.info('Telegram channel connected');
-          resolve();
-          void flushQueue();
-        },
-      }).catch((err) => {
-        if (watchdogTimer) {
-          clearTimeout(watchdogTimer);
-          watchdogTimer = null;
-        }
-        connected = false;
-        if (!shuttingDown) {
-          log.warn('Telegram polling error — reconnecting', { err });
-          scheduleReconnect(config);
-        }
-      });
+          connected = false;
+          if (!shuttingDown) {
+            log.warn('Telegram polling error — reconnecting', { err });
+            scheduleReconnect(config);
+          }
+        });
     });
   }
 
@@ -357,11 +340,7 @@ function createAdapter(): ChannelAdapter {
       return connected;
     },
 
-    async deliver(
-      platformId: string,
-      _threadId: string | null,
-      message: OutboundMessage,
-    ): Promise<string | undefined> {
+    async deliver(platformId: string, _threadId: string | null, message: OutboundMessage): Promise<string | undefined> {
       // platform_id is stored as "telegram:<chat_id>" — strip the prefix for the API
       const chatId = platformId.startsWith('telegram:') ? platformId.slice('telegram:'.length) : platformId;
       platformId = chatId;
