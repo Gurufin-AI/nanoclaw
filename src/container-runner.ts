@@ -441,6 +441,13 @@ async function buildContainerArgs(
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     args.push('-e', `ANTHROPIC_DEFAULT_HAIKU_MODEL=${process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL}`);
   }
+  // Auto-compact window — for local models whose context (e.g. llama.cpp's
+  // 131072) is smaller than Claude's native ~200K, the SDK must start
+  // compacting below the server's hard limit or requests get rejected once the
+  // conversation grows past it. Forward the host override into the container.
+  if (process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW) {
+    args.push('-e', `CLAUDE_CODE_AUTO_COMPACT_WINDOW=${process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW}`);
+  }
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {
