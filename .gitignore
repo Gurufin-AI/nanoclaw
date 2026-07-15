@@ -46,3 +46,7 @@ AGENTS.md
 docs/maintainer-guide.md
 docs/drafts/
 forks.md
+
+# Local tooling artifacts (per-machine, never committed)
+.serena/
+.claude/plans/
