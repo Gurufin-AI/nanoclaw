@@ -77,6 +77,18 @@ export function writeMessageOut(msg: WriteMessageOut): number {
 }
 
 /**
+ * Current maximum outbound seq. Used by the poll loop to detect whether the
+ * agent sent anything via the send_message/send_file/edit_message MCP tools
+ * during a turn: if maxOutSeq increased between the turn's start and its result
+ * event, the agent already delivered content and a "you forgot to wrap in
+ * <message>" nudge must be suppressed (otherwise the agent replies "already
+ * sent!" with no <message> block, which looks unwrapped again → infinite loop).
+ */
+export function getMaxOutSeq(): number {
+  return (getOutboundDb().prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out').get() as { m: number }).m;
+}
+
+/**
  * Look up a message's platform ID by seq number.
  * Searches both inbound and outbound DBs since seq spans both.
  *

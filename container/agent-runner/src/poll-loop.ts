@@ -1,6 +1,6 @@
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
-import { writeMessageOut } from './db/messages-out.js';
+import { writeMessageOut, getMaxOutSeq } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
 import { clearCurrentInReplyTo, setCurrentInReplyTo } from './current-batch.js';
@@ -338,6 +338,13 @@ export async function processQuery(
   let queryContinuation: string | undefined;
   let done = false;
   let unwrappedNudged = false;
+  // Outbound seq at the start of the current turn. If the agent sends via an
+  // MCP tool (send_message/send_file/edit_message) mid-turn, getMaxOutSeq()
+  // rises above this. We then know the turn's final text having no <message>
+  // block is expected — the content already went out — so we must NOT nudge.
+  // Snapshotted at turn start (initial batch here, refreshed on each follow-up
+  // push) so the check is per-turn.
+  let seqAtTurnStart = getMaxOutSeq();
   // Prompt queue for the exchange hook — each result event consumes the
   // oldest unanswered prompt, except a wrapping-retry result, which answers
   // the same prompt again. Unused (and unmaintained) when the provider
@@ -421,6 +428,7 @@ export async function processQuery(
         const prompt = formatMessages(keep);
         log(`Pushing ${keep.length} follow-up message(s) into active query`);
         unwrappedNudged = false;
+        seqAtTurnStart = getMaxOutSeq();
         query.push(prompt);
         archivePrompts.push(prompt);
         markCompleted(keptIds);
@@ -500,12 +508,17 @@ export async function processQuery(
             });
             archivePrompts.shift();
           } else {
-            const willRetryWrapping = hasUnwrapped && !unwrappedNudged;
+            // If the agent already delivered content via an MCP tool this turn
+            // (out seq advanced), a missing <message> block in the final text is
+            // expected — do not nudge, or the agent replies "already sent!" with
+            // still no block, which reads as unwrapped again → infinite loop.
+            const sentViaMcpThisTurn = getMaxOutSeq() > seqAtTurnStart;
+            const willRetryWrapping = hasUnwrapped && !unwrappedNudged && !sentViaMcpThisTurn;
             notifyExchangeComplete(onExchangeComplete, {
               prompt: archivePrompts[0] ?? initialPrompt,
               result: event.text,
               continuation: queryContinuation ?? initialContinuation,
-              status: hasUnwrapped ? 'undelivered' : 'completed',
+              status: hasUnwrapped && !sentViaMcpThisTurn ? 'undelivered' : 'completed',
             });
             if (willRetryWrapping) {
               unwrappedNudged = true;

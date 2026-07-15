@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from './db/connection.js';
 import { getPendingMessages, markCompleted } from './db/messages-in.js';
-import { getUndeliveredMessages } from './db/messages-out.js';
+import { getUndeliveredMessages, writeMessageOut } from './db/messages-out.js';
 import { formatMessages, extractRouting } from './formatter.js';
 import { isCorruptionError, processQuery } from './poll-loop.js';
 import { MockProvider } from './providers/mock.js';
@@ -404,6 +404,34 @@ function makeResultQuery(result: ProviderEvent): { query: AgentQuery; pushes: st
   };
 }
 
+/**
+ * Like makeResultQuery, but runs `beforeResult` after the init event and before
+ * the result event — used to simulate an MCP send_message call that advances the
+ * outbound seq mid-turn.
+ */
+function makeResultQueryWithSideEffect(
+  result: ProviderEvent,
+  beforeResult: () => void,
+): { query: AgentQuery; pushes: string[] } {
+  const pushes: string[] = [];
+  async function* events(): AsyncGenerator<ProviderEvent> {
+    yield { type: 'init', continuation: 'sess-1' };
+    beforeResult();
+    yield result;
+  }
+  return {
+    pushes,
+    query: {
+      push: (m: string) => {
+        pushes.push(m);
+      },
+      end: () => {},
+      events: events(),
+      abort: () => {},
+    },
+  };
+}
+
 const ERR_ROUTING = {
   platformId: 'chan-1',
   channelType: 'discord',
@@ -435,6 +463,35 @@ describe('error result with no <message> envelope', () => {
     expect(getUndeliveredMessages()).toHaveLength(0);
     expect(pushes).toHaveLength(1);
     expect(pushes[0]).toContain('was not delivered');
+  });
+});
+
+describe('unwrapped result after an MCP send this turn', () => {
+  it('does not nudge when the agent already sent via send_message (out seq advanced)', async () => {
+    // Simulate the agent delivering content via the send_message MCP tool
+    // mid-turn (advancing the outbound seq), then producing a final text with
+    // no <message> block ("already sent!"). This must NOT trigger a re-wrap
+    // nudge — doing so causes the infinite "already sent" loop.
+    const { query, pushes } = makeResultQueryWithSideEffect(
+      { type: 'result', text: '(이미 전송 완료했습니다!)' },
+      () => {
+        writeMessageOut({
+          id: 'out-mcp-1',
+          in_reply_to: 'm1',
+          kind: 'chat',
+          platform_id: 'chan-1',
+          channel_type: 'discord',
+          thread_id: null,
+          content: JSON.stringify({ text: 'the real answer, sent via MCP' }),
+        });
+      },
+    );
+
+    await processQuery(query, ERR_ROUTING, ['m1'], 'claude', undefined, 'prompt', undefined);
+
+    // Only the MCP-sent message exists; no nudge was pushed.
+    expect(getUndeliveredMessages()).toHaveLength(1);
+    expect(pushes).toHaveLength(0);
   });
 });
 
