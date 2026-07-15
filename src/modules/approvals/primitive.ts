@@ -23,7 +23,7 @@
  */
 import { normalizeOptions, type RawOption } from '../../channels/ask-question.js';
 import { getMessagingGroup } from '../../db/messaging-groups.js';
-import { createPendingApproval, getSession } from '../../db/sessions.js';
+import { createPendingApproval, deletePendingApproval, getSession } from '../../db/sessions.js';
 import { getDeliveryAdapter } from '../../delivery.js';
 import { wakeContainer } from '../../container-runner.js';
 import { log } from '../../log.js';
@@ -32,10 +32,23 @@ import type { MessagingGroup, PendingApproval, Session } from '../../types.js';
 import { getAdminsOfAgentGroup, getGlobalAdmins, getOwners } from '../permissions/db/user-roles.js';
 import { ensureUserDm } from '../permissions/user-dm.js';
 
-/** Two-button approval UI — the only options the primitive supports today. */
+/**
+ * Card value for the "Reject with reason…" button. Selecting it doesn't
+ * finalize the reject — it holds the row and captures the approver's next DM
+ * as a one-line reason relayed to the requesting agent. See reason-capture.ts.
+ */
+export const REJECT_WITH_REASON_VALUE = 'reject_with_reason';
+
+/**
+ * Three-button approval UI. Plain Reject is the instant fast path; "Reject with
+ * reason…" opts into the reason-capture flow. Shared by every module approval
+ * (create_agent, install_packages, add_mcp_server); OneCLI credential cards
+ * keep their own two-button set in onecli-approvals.ts.
+ */
 const APPROVAL_OPTIONS: RawOption[] = [
-  { label: 'Approve', selectedLabel: '✅ Approved', value: 'approve' },
-  { label: 'Reject', selectedLabel: '❌ Rejected', value: 'reject' },
+  { label: 'Approve', selectedLabel: '✅ Approved', value: 'approve', style: 'primary' },
+  { label: 'Reject', selectedLabel: '❌ Rejected', value: 'reject', style: 'danger' },
+  { label: 'Reject with reason…', selectedLabel: '📝 Rejected (awaiting reason)', value: REJECT_WITH_REASON_VALUE },
 ];
 
 // ── Approval handler registry ──
@@ -46,6 +59,12 @@ const APPROVAL_OPTIONS: RawOption[] = [
 export interface ApprovalHandlerContext {
   session: Session;
   payload: Record<string, unknown>;
+  /**
+   * The verified approval row — the grant an approved continuation carries
+   * when it re-enters its guarded entry point. Still live here; resolution
+   * deletes it after the handler returns, so a grant executes exactly once.
+   */
+  approval: PendingApproval;
   /** User ID of the admin who approved. Empty string if unknown. */
   userId: string;
   /** Send a system chat message to the requesting agent's session. */
@@ -197,6 +216,8 @@ export interface RequestApprovalOptions {
   title: string;
   /** Card body shown to the admin. */
   question: string;
+  /** Deliver the card to this specific user instead of all of the session group's admins. */
+  approverUserId?: string;
 }
 
 /**
@@ -206,9 +227,9 @@ export interface RequestApprovalOptions {
  * approval handler for this action via the response dispatcher.
  */
 export async function requestApproval(opts: RequestApprovalOptions): Promise<void> {
-  const { session, action, payload, title, question, agentName } = opts;
+  const { session, action, payload, title, question, agentName, approverUserId } = opts;
 
-  const approvers = pickApprover(session.agent_group_id);
+  const approvers = approverUserId ? [approverUserId] : pickApprover(session.agent_group_id);
   if (approvers.length === 0) {
     notifyAgent(session, `${action} failed: no owner or admin configured to approve.`);
     return;
@@ -235,6 +256,7 @@ export async function requestApproval(opts: RequestApprovalOptions): Promise<voi
     created_at: new Date().toISOString(),
     title,
     options_json: JSON.stringify(normalizedOptions),
+    approver_user_id: approverUserId ?? null,
   });
 
   const adapter = getDeliveryAdapter();
@@ -255,6 +277,9 @@ export async function requestApproval(opts: RequestApprovalOptions): Promise<voi
       );
     } catch (err) {
       log.error('Failed to deliver approval card', { action, approvalId, err });
+      // The single delivery target never saw the card — remove the row so it
+      // can't linger as a pending approval nobody can act on.
+      deletePendingApproval(approvalId);
       notifyAgent(session, `${action} failed: could not deliver approval request to ${target.userId}.`);
       return;
     }
