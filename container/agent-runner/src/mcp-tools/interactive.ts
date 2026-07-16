@@ -7,6 +7,7 @@
 import { findQuestionResponse, markCompleted } from '../db/messages-in.js';
 import { writeMessageOut } from '../db/messages-out.js';
 import { getSessionRouting } from '../db/session-routing.js';
+import { findByName, getAllDestinations } from '../destinations.js';
 import { registerTools } from './server.js';
 import type { McpToolDefinition } from './types.js';
 
@@ -18,7 +19,35 @@ function generateId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function routing() {
+function destinationList(): string {
+  const all = getAllDestinations();
+  return all.length > 0 ? all.map((d) => `"${d.name}"`).join(', ') : '(none configured)';
+}
+
+/**
+ * Resolve routing for interactive tools. If `to` is provided, resolve via
+ * the destination map (same as send_message). Otherwise fall back to
+ * session_routing — works for chat sessions but will produce NULL fields
+ * in task sessions where no origin chat is bound.
+ */
+function resolveRouting(to?: string | null): {
+  channel_type: string | null;
+  platform_id: string | null;
+  thread_id: string | null;
+} | { error: string } {
+  if (to) {
+    const dest = findByName(to);
+    if (!dest) return { error: `Unknown destination "${to}". Known: ${destinationList()}` };
+    if (dest.type === 'channel') {
+      const session = getSessionRouting();
+      const threadId =
+        session.channel_type === dest.channelType && session.platform_id === dest.platformId
+          ? session.thread_id
+          : null;
+      return { channel_type: dest.channelType!, platform_id: dest.platformId!, thread_id: threadId };
+    }
+    return { channel_type: 'agent', platform_id: dest.agentGroupId!, thread_id: null };
+  }
   return getSessionRouting();
 }
 
@@ -38,7 +67,7 @@ export const askUserQuestion: McpToolDefinition = {
   tool: {
     name: 'ask_user_question',
     description:
-      'Ask the user a multiple-choice question and wait for their response. This is a blocking call — execution pauses until the user responds or the timeout expires. Provide a short card title (e.g. "Confirm deletion") and an array of options — each option may be a plain string (used as both button label and result value) or an object { label, selectedLabel?, value? } where selectedLabel is the text shown on the card after the user clicks.',
+      'Ask the user a multiple-choice question and wait for their response. This is a blocking call — execution pauses until the user responds or the timeout expires. Provide a short card title (e.g. "Confirm deletion") and an array of options — each option may be a plain string (used as both button label and result value) or an object { label, selectedLabel?, value? } where selectedLabel is the text shown on the card after the user clicks. In task sessions, pass `to` with the destination name (e.g. "kaswan") — task sessions have no origin chat and the question will not be delivered without it.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -62,6 +91,7 @@ export const askUserQuestion: McpToolDefinition = {
           },
           description: 'Options for the user to choose from (string or {label, selectedLabel?, value?})',
         },
+        to: { type: 'string', description: 'Destination name to send the question to. Required in task sessions.' },
         timeout: { type: 'number', description: 'Timeout in seconds (default: 300)' },
       },
       required: ['title', 'question', 'options'],
@@ -87,7 +117,14 @@ export const askUserQuestion: McpToolDefinition = {
     });
 
     const questionId = generateId();
-    const r = routing();
+    const r = resolveRouting(args.to as string | null | undefined);
+    if ('error' in r) return err(r.error);
+
+    if (!r.channel_type || !r.platform_id) {
+      return err(
+        `No destination resolved — in a task session you must pass \`to\` with a destination name. Known: ${destinationList()}`,
+      );
+    }
 
     // Write question card to outbound.db
     writeMessageOut({
@@ -132,7 +169,8 @@ export const askUserQuestion: McpToolDefinition = {
 export const sendCard: McpToolDefinition = {
   tool: {
     name: 'send_card',
-    description: 'Send a structured card (interactive or display-only) to the current conversation.',
+    description:
+      'Send a structured card (interactive or display-only) to a named destination. In task sessions, `to` is required — task sessions have no origin chat and the card will not be delivered without it.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -140,6 +178,7 @@ export const sendCard: McpToolDefinition = {
           type: 'object',
           description: 'Card structure with title, description, and optional children/actions',
         },
+        to: { type: 'string', description: 'Destination name to send the card to. Required in task sessions.' },
         fallbackText: { type: 'string', description: 'Text fallback for platforms without card support' },
       },
       required: ['card'],
@@ -150,7 +189,14 @@ export const sendCard: McpToolDefinition = {
     if (!card) return err('card is required');
 
     const id = generateId();
-    const r = routing();
+    const r = resolveRouting(args.to as string | null | undefined);
+    if ('error' in r) return err(r.error);
+
+    if (!r.channel_type || !r.platform_id) {
+      return err(
+        `No destination resolved — in a task session you must pass \`to\` with a destination name. Known: ${destinationList()}`,
+      );
+    }
 
     writeMessageOut({
       id,
