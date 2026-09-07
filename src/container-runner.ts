@@ -29,6 +29,7 @@ import { getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars } from './db/container-configs.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import { composeGroupProjectDoc, DEFAULT_PROJECT_DOC } from './project-doc-compose.js';
+import { snapshotProjectDoc } from './project-doc-snapshot.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import {
   getLiveHostInstance,
@@ -856,7 +857,10 @@ export async function buildMounts(
   const composedClaudeMd = path.join(groupDir, 'CLAUDE.md');
   if (defaultSurfaces && fs.existsSync(composedClaudeMd)) {
     mounts.push({
-      hostPath: composedClaudeMd,
+      hostPath: snapshotProjectDoc(
+        composedClaudeMd,
+        path.join(DATA_DIR, 'v2-sessions', agentGroup.id, '.project-doc-mounts'),
+      ),
       containerPath: '/workspace/agent/CLAUDE.md',
       readonly: true,
       mountClass: 'group-state',
