@@ -173,10 +173,24 @@ export function sqliteWriteMessageOut(message: OutboundWrite): number {
 
 export function sqliteGetMessageIdBySeq(sequence: number): string | null {
   const inbound = getInboundDb();
-  const inboundRow = inbound.prepare('SELECT id FROM messages_in WHERE seq = ?').get(sequence) as
-    | { id: string }
+  const inboundRow = inbound.prepare('SELECT id, kind, content FROM messages_in WHERE seq = ?').get(sequence) as
+    | { id: string; kind: string; content: string }
     | undefined;
-  if (inboundRow) return inboundRow.id;
+  if (inboundRow) {
+    // Router IDs include an agent-group suffix. Chat SDK preserves the real
+    // platform message ID in the envelope; edits/reactions must use that ID.
+    if (inboundRow.kind === 'chat-sdk') {
+      try {
+        const message = JSON.parse(inboundRow.content);
+        return message?._type === 'chat:Message' && typeof message.id === 'string' && message.id.length > 0
+          ? message.id
+          : null;
+      } catch {
+        return null;
+      }
+    }
+    return inboundRow.id;
+  }
   const outboundRow = getOutboundDb().prepare('SELECT id FROM messages_out WHERE seq = ?').get(sequence) as
     | { id: string }
     | undefined;
@@ -184,7 +198,8 @@ export function sqliteGetMessageIdBySeq(sequence: number): string | null {
   const delivered = inbound
     .prepare('SELECT platform_message_id FROM delivered WHERE message_out_id = ?')
     .get(outboundRow.id) as { platform_message_id: string | null } | undefined;
-  return delivered?.platform_message_id || outboundRow.id;
+  // A queued/failed outbound message has no platform target yet.
+  return delivered?.platform_message_id || null;
 }
 
 export function sqliteGetRoutingBySeq(

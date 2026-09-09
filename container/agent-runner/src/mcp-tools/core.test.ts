@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from '../mailbox/sqlite/connection.js';
 import { getUndeliveredMessages } from '../db/messages-out.js';
-import { sendMessage } from './core.js';
+import { addReaction, editMessage, sendMessage } from './core.js';
 
 /**
  * Publish the a2a reply stamp the way the poll loop does: a direct write to
@@ -42,6 +42,61 @@ beforeEach(() => {
 
 afterEach(() => {
   closeSessionDb();
+});
+
+describe('platform message IDs for reactions and edits', () => {
+  function seedInbound(content: string, kind = 'chat-sdk'): void {
+    getInboundDb()
+      .prepare(
+        `INSERT INTO messages_in (id, seq, kind, timestamp, channel_type, platform_id, content)
+       VALUES (?, 2, ?, ?, 'telegram', 'telegram:12345', ?)`,
+      )
+      .run('12345:678:ag-test', kind, new Date().toISOString(), content);
+  }
+
+  it('queues a reaction using the original Chat SDK ID, not the router ID', async () => {
+    seedInbound(JSON.stringify({ _type: 'chat:Message', id: '12345:678', text: 'hello' }));
+    await addReaction.handler({ messageId: 2, emoji: 'thumbs_up' });
+    const out = getUndeliveredMessages();
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0].content)).toMatchObject({ operation: 'reaction', messageId: '12345:678' });
+  });
+
+  it('uses the same platform ID resolution for edits', async () => {
+    seedInbound(JSON.stringify({ _type: 'chat:Message', id: '12345:678' }));
+    await editMessage.handler({ messageId: 2, text: 'updated' });
+    expect(JSON.parse(getUndeliveredMessages()[0].content)).toMatchObject({
+      operation: 'edit',
+      messageId: '12345:678',
+      text: 'updated',
+    });
+  });
+
+  for (const content of ['{broken', '{}', 'null', '{"_type":"chat:Message","id":""}']) {
+    it(`does not queue a reaction with a missing/invalid platform ID: ${content}`, async () => {
+      seedInbound(content);
+      await addReaction.handler({ messageId: 2, emoji: 'thumbs_up' });
+      expect(getUndeliveredMessages()).toHaveLength(0);
+    });
+  }
+
+  it('does not use an internal outbound ID before delivery', async () => {
+    getOutboundDb()
+      .prepare(
+        `INSERT INTO messages_out (id, seq, kind, timestamp, channel_type, platform_id, content)
+       VALUES ('internal-out', 3, 'chat', ?, 'telegram', 'telegram:12345', '{}')`,
+      )
+      .run(new Date().toISOString());
+    await addReaction.handler({ messageId: 3, emoji: 'thumbs_up' });
+    expect(getUndeliveredMessages()).toHaveLength(1);
+    getInboundDb()
+      .prepare('INSERT INTO delivered (message_out_id, platform_message_id, delivered_at) VALUES (?, ?, ?)')
+      .run('internal-out', '12345:679', new Date().toISOString());
+    await addReaction.handler({ messageId: 3, emoji: 'thumbs_up' });
+    const reaction = getUndeliveredMessages().find((m) => JSON.parse(m.content).operation === 'reaction');
+    expect(reaction).toBeDefined();
+    expect(JSON.parse(reaction!.content).messageId).toBe('12345:679');
+  });
 });
 
 describe('send_message MCP tool — in_reply_to plumbing', () => {
