@@ -6,6 +6,45 @@ import { SqliteAgentMailbox } from './index.js';
 afterEach(() => closeSessionDb());
 
 describe('SQLite runner mailbox canonical serialization', () => {
+  test('deduplicates identical immediate task output but preserves distinct sends', async () => {
+    const { inbound, outbound } = initTestSessionDb();
+    for (const [id, kind] of [
+      ['task-1', 'task'],
+      ['task-2', 'task'],
+      ['chat-1', 'chat'],
+    ]) {
+      inbound
+        .prepare('INSERT INTO messages_in (id, kind, timestamp, content) VALUES (?, ?, ?, ?)')
+        .run(id, kind, new Date().toISOString(), '{}');
+    }
+    const mailbox = new SqliteAgentMailbox();
+    const message = {
+      id: 'out-1',
+      inReplyTo: 'task-1',
+      kind: 'chat' as const,
+      platformId: 'room',
+      channelType: 'test',
+      content: '{"text":"report"}',
+    };
+    const seq = await mailbox.writeMessageOut(message);
+    expect(await new SqliteAgentMailbox().writeMessageOut({ ...message, id: 'retry' })).toBe(seq);
+    expect(outbound.prepare('SELECT count(*) AS n FROM messages_out').get()).toEqual({ n: 1 });
+    for (const change of [
+      { inReplyTo: 'task-2' },
+      { content: '{"text":"different"}' },
+      { platformId: 'other' },
+      { threadId: 'thread' },
+      { channelType: 'other' },
+      { deliverAfter: '2026-09-11T00:30:00.000Z' },
+      { recurrence: '30 9 * * *' },
+      { inReplyTo: 'chat-1' },
+      { inReplyTo: 'chat-1' },
+    ]) {
+      expect(await mailbox.writeMessageOut({ ...message, ...change, id: crypto.randomUUID() })).toBeGreaterThan(seq);
+    }
+    expect(outbound.prepare('SELECT count(*) AS n FROM messages_out').get()).toEqual({ n: 10 });
+  });
+
   test('classifies only corruption errors as requiring a fresh runner', () => {
     const mailbox = new SqliteAgentMailbox();
     expect(mailbox.shouldRestartAfter(new Error('database disk image is malformed'))).toBe(true);

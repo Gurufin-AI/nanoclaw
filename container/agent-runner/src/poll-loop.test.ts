@@ -31,6 +31,36 @@ function insertMessage(
 }
 
 describe('formatter', () => {
+  it('aborts an active task query after host cancellation', async () => {
+    insertMessage('cancel-task', 'task', { prompt: 'report' });
+    let release!: () => void;
+    const stopped = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let aborted = false;
+    const query: AgentQuery = {
+      events: (async function* (): AsyncGenerator<ProviderEvent> {
+        await stopped;
+      })(),
+      push: () => {},
+      end: () => {},
+      abort: () => {
+        aborted = true;
+        release();
+      },
+    };
+    const batch = getPendingMessages();
+    const running = processQuery(query, extractRouting(batch), ['cancel-task'], 'mock', undefined, '', undefined);
+    getInboundDb().prepare("UPDATE messages_in SET status = 'cancelled' WHERE id = ?").run('cancel-task');
+    const timeout = setTimeout(release, 2000);
+    try {
+      await running;
+      expect(aborted).toBe(true);
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
   it('should format a single chat message', () => {
     insertMessage('m1', 'chat', { sender: 'John', text: 'Hello world' });
     const messages = getPendingMessages();
@@ -220,7 +250,13 @@ describe('origin metadata (from= attribute)', () => {
       .run(name, name, channelType, platformId);
   }
 
-  function insertWithRouting(id: string, kind: string, content: object, channelType: string | null, platformId: string | null): void {
+  function insertWithRouting(
+    id: string,
+    kind: string,
+    content: object,
+    channelType: string | null,
+    platformId: string | null,
+  ): void {
     getInboundDb()
       .prepare(
         `INSERT INTO messages_in (id, kind, timestamp, status, platform_id, channel_type, content)
@@ -484,9 +520,9 @@ const TASK_ROUTING = {
 
 function taskLogRows(): Array<{ text: string }> {
   return (
-    getOutboundDb()
-      .prepare("SELECT content FROM messages_out WHERE kind = 'task_log' ORDER BY seq")
-      .all() as Array<{ content: string }>
+    getOutboundDb().prepare("SELECT content FROM messages_out WHERE kind = 'task_log' ORDER BY seq").all() as Array<{
+      content: string;
+    }>
   ).map((r) => JSON.parse(r.content) as { text: string });
 }
 

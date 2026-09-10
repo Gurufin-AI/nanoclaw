@@ -1,6 +1,7 @@
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import {
   getPendingMessages,
+  getMessageIn,
   markProcessing,
   markCompleted,
   markScriptSkipped,
@@ -292,7 +293,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     // Ensure completed even if processQuery ended without a result event
     // (e.g. stream closed unexpectedly).
-    markCompleted(processingIds);
+    markCompleted(processingIds.filter((id) => getMessageIn(id)?.status !== 'cancelled'));
     log(`Completed ${ids.length} message(s)`);
   }
 }
@@ -408,12 +409,22 @@ export async function processQuery(
   let pollInFlight = false;
   let endedForCommand = false;
   let mailboxFailureStreak = 0;
+  const activeTaskIds = new Set(initialBatchIds.filter((id) => getMessageIn(id)?.kind === 'task'));
   const pollHandle = setInterval(() => {
     if (done || pollInFlight || endedForCommand) return;
     pollInFlight = true;
 
     void (async () => {
       try {
+        // Cancelling a schedule must also interrupt its in-flight query.
+        // Completed turns are removed below so an old cancellation cannot
+        // abort an unrelated follow-up in a warm session.
+        if ([...activeTaskIds].some((id) => getMessageIn(id)?.status === 'cancelled')) {
+          log('Active task cancelled — aborting query');
+          endedForCommand = true;
+          query.abort();
+          return;
+        }
         const pending = getPendingMessages();
 
         // Slash commands need a fresh query: /clear resets the SDK's
@@ -480,6 +491,7 @@ export async function processQuery(
         if (done) return;
 
         const keptIds = keep.map((m) => m.id);
+        for (const message of keep) if (message.kind === 'task') activeTaskIds.add(message.id);
         const prompt = formatMessages(keep);
         log(`Pushing ${keep.length} follow-up message(s) into active query`);
         unwrappedNudged = false;
@@ -547,13 +559,14 @@ export async function processQuery(
           midTurnTail = scan.tail;
         }
       } else if (event.type === 'result') {
+        activeTaskIds.clear();
         // A result — with or without text — means the turn is done. Mark
         // the initial batch completed now so the host sweep doesn't see
         // stale 'processing' claims while the query stays open for
         // follow-up pushes. The agent may have responded via MCP
         // (send_message) mid-turn, or the message may not need a response
         // at all — either way the turn is finished.
-        markCompleted(initialBatchIds);
+        markCompleted(initialBatchIds.filter((id) => getMessageIn(id)?.status !== 'cancelled'));
         if (event.text) {
           const { sent, hasUnwrapped, taskBlocks, resultBlocks } = await dispatchResultText(event.text, routing, {
             midTurnSent,

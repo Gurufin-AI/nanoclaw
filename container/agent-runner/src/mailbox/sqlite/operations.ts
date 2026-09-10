@@ -130,6 +130,41 @@ export function sqliteWriteMessageOut(message: OutboundWrite): number {
   const inbound = getInboundDb();
   outbound.exec('BEGIN IMMEDIATE');
   try {
+    // A model may repeat a successful send tool indefinitely. Make immediate
+    // task output idempotent across tool processes and runner restarts, without
+    // suppressing different reports, destinations, or tomorrow's occurrence.
+    let plainText = false;
+    if (message.kind === 'chat') {
+      try {
+        const payload = JSON.parse(message.content);
+        plainText = payload !== null && typeof payload.text === 'string' && Object.keys(payload).length === 1;
+      } catch {
+        /* Non-text payloads keep their existing write semantics. */
+      }
+    }
+    if (plainText && message.inReplyTo && !message.deliverAfter && !message.recurrence) {
+      const task = inbound.prepare("SELECT 1 FROM messages_in WHERE id = ? AND kind = 'task'").get(message.inReplyTo);
+      if (task) {
+        const existing = outbound
+          .prepare(
+            `SELECT seq FROM messages_out
+          WHERE in_reply_to = ? AND kind = 'chat' AND content = ?
+            AND platform_id IS ? AND channel_type IS ? AND thread_id IS ?
+            AND deliver_after IS NULL AND recurrence IS NULL LIMIT 1`,
+          )
+          .get(
+            message.inReplyTo,
+            message.content,
+            message.platformId ?? null,
+            message.channelType ?? null,
+            message.threadId ?? null,
+          ) as { seq: number } | undefined;
+        if (existing) {
+          outbound.exec('COMMIT');
+          return existing.seq;
+        }
+      }
+    }
     const maxOut = (
       outbound.prepare('SELECT COALESCE(MAX(seq), 0) AS value FROM messages_out').get() as {
         value: number;
