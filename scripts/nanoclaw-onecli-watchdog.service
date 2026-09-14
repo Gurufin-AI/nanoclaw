@@ -1,0 +1,13 @@
+[Unit]
+Description=Check WSL connectivity to OneCLI and recover its published ports
+
+[Service]
+Type=oneshot
+StateDirectory=nanoclaw-onecli-watchdog
+StateDirectoryMode=0700
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/sg docker -c "exec /usr/bin/env STATE_DIRECTORY=%S/nanoclaw-onecli-watchdog /bin/bash %h/.local/libexec/nanoclaw/onecli-connectivity-watchdog.sh"
+TimeoutStartSec=100
+UMask=0077
+StandardOutput=journal
+StandardError=journal

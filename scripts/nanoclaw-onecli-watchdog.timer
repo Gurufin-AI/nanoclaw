@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically verify OneCLI connectivity from WSL
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Unit=nanoclaw-onecli-watchdog.service
+
+[Install]
+WantedBy=timers.target
