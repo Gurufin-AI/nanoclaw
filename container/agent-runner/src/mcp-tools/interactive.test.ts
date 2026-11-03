@@ -5,7 +5,10 @@ import { getUndeliveredMessages } from '../db/messages-out.js';
 import { findQuestionResponse } from '../db/messages-in.js';
 import { askUserQuestion, LINK_ACTION_SCHEMA, MAX_CARD_QUESTION_LENGTH, sendCard } from './interactive.js';
 
-beforeEach(() => initTestSessionDb());
+beforeEach(() => {
+  initTestSessionDb();
+  seedBoundThread('slack', 'C-fixture', null);
+});
 afterEach(() => closeSessionDb());
 
 describe('ask_user_question cancellation', () => {
@@ -331,11 +334,9 @@ function seedBoundThread(channelType: string, platformId: string, threadId: stri
     id INTEGER PRIMARY KEY CHECK (id = 1),
     channel_type TEXT, platform_id TEXT, thread_id TEXT
   )`);
-  db.prepare('INSERT INTO session_routing (id, channel_type, platform_id, thread_id) VALUES (1, ?, ?, ?)').run(
-    channelType,
-    platformId,
-    threadId,
-  );
+  db.prepare(
+    'INSERT OR REPLACE INTO session_routing (id, channel_type, platform_id, thread_id) VALUES (1, ?, ?, ?)',
+  ).run(channelType, platformId, threadId);
 }
 
 let hostSeq = 0;
@@ -438,5 +439,18 @@ describe('ask_user_question / send_card — thread of the chat being answered', 
     seedBoundThread('slack', 'C123', 'T-bound');
 
     expect(await sendBoth()).toEqual(['T-bound', 'T-bound']);
+  });
+});
+
+describe('interactive tools in task sessions', () => {
+  it('refuses to queue cards or questions when the task has no destination', async () => {
+    getInboundDb().exec('DELETE FROM session_routing');
+    const card = await sendCard.handler({ card: { title: 'Task report' } });
+    const question = await askUserQuestion.handler({ title: 'Task', question: 'Continue?', options: ['yes'] });
+    for (const result of [card, question]) {
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('No destination resolved');
+    }
+    expect(getUndeliveredMessages()).toHaveLength(0);
   });
 });
