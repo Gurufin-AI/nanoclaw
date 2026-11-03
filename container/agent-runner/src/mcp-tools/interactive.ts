@@ -34,17 +34,23 @@ function destinationList(): string {
  * session_routing — works for chat sessions but will produce NULL fields
  * in task sessions where no origin chat is bound.
  */
-function resolveRouting(to?: string | null): {
-  channel_type: string | null;
-  platform_id: string | null;
-  thread_id: string | null;
-} | { error: string } {
+function resolveRouting(to?: string | null):
+  | {
+      channel_type: string | null;
+      platform_id: string | null;
+      thread_id: string | null;
+    }
+  | { error: string } {
   if (to) {
     const dest = findByName(to);
     if (!dest) return { error: `Unknown destination "${to}". Known: ${destinationList()}` };
     if (dest.type === 'channel') {
       const session = getSessionRouting();
-      const threadId = resolveDestinationThread(dest.channelType!, dest.platformId!, getCurrentReplyRoute())?.threadId ?? (session.channel_type === dest.channelType && session.platform_id === dest.platformId ? session.thread_id : null);
+      const threadId =
+        resolveDestinationThread(dest.channelType!, dest.platformId!, getCurrentReplyRoute())?.threadId ??
+        (session.channel_type === dest.channelType && session.platform_id === dest.platformId
+          ? session.thread_id
+          : null);
       return { channel_type: dest.channelType!, platform_id: dest.platformId!, thread_id: threadId };
     }
     return { channel_type: 'agent', platform_id: dest.agentGroupId!, thread_id: null };
@@ -300,7 +306,8 @@ export const askUserQuestion: McpToolDefinition = {
 export const sendCard: McpToolDefinition = {
   tool: {
     name: 'send_card',
-    description: 'Send a display card with optional URL link buttons to a named destination. In task sessions, to is required.',
+    description:
+      'Send a display card with optional URL link buttons to a named destination. In task sessions, to is required.',
     inputSchema: {
       type: 'object' as const,
       properties: {

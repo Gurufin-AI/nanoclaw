@@ -133,7 +133,9 @@ export function sqliteWriteMessageOut(message: OutboundWrite): number {
       }
     }
     if (plainText && message.inReplyTo && !message.deliverAfter && !message.recurrence) {
-      const task = readInbound((inbound) => inbound.prepare("SELECT 1 FROM messages_in WHERE id = ? AND kind = 'task'").get(message.inReplyTo!));
+      const task = readInbound((inbound) =>
+        inbound.prepare("SELECT 1 FROM messages_in WHERE id = ? AND kind = 'task'").get(message.inReplyTo!),
+      );
       if (task) {
         const existing = outbound
           .prepare(
@@ -196,7 +198,12 @@ export function sqliteWriteMessageOut(message: OutboundWrite): number {
 }
 
 export function sqliteGetMessageIdBySeq(sequence: number): string | null {
-  const inboundRow = readInbound((inbound) => inbound.prepare('SELECT id, kind, content FROM messages_in WHERE seq = ?').get(sequence) as { id: string; kind: string; content: string } | undefined);
+  const inboundRow = readInbound(
+    (inbound) =>
+      inbound.prepare('SELECT id, kind, content FROM messages_in WHERE seq = ?').get(sequence) as
+        | { id: string; kind: string; content: string }
+        | undefined,
+  );
   if (inboundRow) {
     // Router IDs include an agent-group suffix. Chat SDK preserves the real
     // platform message ID in the envelope; edits/reactions must use that ID.

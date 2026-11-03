@@ -1262,7 +1262,10 @@ export async function buildMounts(
   const composedProjectDocument = path.join(groupDir, projectDocument?.fileName ?? DEFAULT_PROJECT_DOC.fileName);
   if ((projectDocument || defaultSurfaces) && fs.existsSync(composedProjectDocument)) {
     const mount = {
-      hostPath: snapshotProjectDoc(composedProjectDocument, path.join(DATA_DIR, 'v2-sessions', agentGroup.id, '.project-doc-mounts')),
+      hostPath: snapshotProjectDoc(
+        composedProjectDocument,
+        path.join(DATA_DIR, 'v2-sessions', agentGroup.id, '.project-doc-mounts'),
+      ),
       containerPath: projectDocument?.containerPath ?? '/workspace/agent/CLAUDE.md',
       readonly: true,
       mountClass: projectDocument?.mountClass ?? 'group-state',

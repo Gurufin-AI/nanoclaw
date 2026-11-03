@@ -458,9 +458,12 @@ describe('buildMounts agent surfaces', () => {
 
     const byContainerPath = new Map(mounts.map((m) => [m.containerPath, m]));
     expect(byContainerPath.get('/workspace/agent/CLAUDE.md')).toMatchObject({
-      hostPath: path.join(GROUPS_DIR, ag.folder, 'CLAUDE.md'),
+      hostPath: expect.stringContaining(path.join(DATA_DIR, 'v2-sessions', ag.id, '.project-doc-mounts') + path.sep),
       readonly: true,
     });
+    expect(fs.readFileSync(byContainerPath.get('/workspace/agent/CLAUDE.md')!.hostPath, 'utf8')).toBe(
+      fs.readFileSync(path.join(GROUPS_DIR, ag.folder, 'CLAUDE.md'), 'utf8'),
+    );
     expect(byContainerPath.get('/home/node/.claude')).toMatchObject({
       hostPath: path.join(DATA_DIR, 'v2-sessions', ag.id, '.claude-shared'),
       readonly: false,
